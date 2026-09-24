@@ -65,6 +65,7 @@ jobs:
 
       - name: List wheels
         working-directory: bomiot_cmd
+        shell: bash
         run: ls -lh dist/
 
       - name: Upload wheel artifact
