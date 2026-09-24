@@ -17,10 +17,12 @@ from setuptools.command.build_ext import build_ext
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-COMPILED = (
-    glob.glob(os.path.join(HERE, "build", "bomiot_cmd*.pyd"))
-    + glob.glob(os.path.join(HERE, "build", "bomiot_cmd*.so"))
-)
+import sys
+# Platform-aware: only pick the extension matching the current platform.
+# A stale .pyd committed from a Windows build must not be packaged into a
+# Linux/macOS wheel (auditwheel would find no ELF and fail).
+_compiled_pat = "bomiot_cmd*.pyd" if sys.platform == "win32" else "bomiot_cmd*.so"
+COMPILED = glob.glob(os.path.join(HERE, "build", _compiled_pat))
 
 if not COMPILED:
     raise SystemExit(

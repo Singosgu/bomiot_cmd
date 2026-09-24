@@ -43,6 +43,7 @@ jobs:
       - name: Compile bomiot_cmd package with Nuitka
         shell: bash
         run: |
+          rm -rf bomiot_cmd/build
           python -m nuitka --mode=module \
             --include-package=bomiot_cmd \
             --output-dir=bomiot_cmd/build \
@@ -112,6 +113,7 @@ jobs:
               set -e
               pip install --upgrade pip
               pip install patchelf "Nuitka==4.2.2" "tomlkit==0.15.1" "colorama>=0.4" setuptools wheel auditwheel
+              rm -rf bomiot_cmd/build
               python -m nuitka --mode=module \
                 --include-package=bomiot_cmd \
                 --output-dir=bomiot_cmd/build \
