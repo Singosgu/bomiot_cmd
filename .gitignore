@@ -1,0 +1,29 @@
+# Nuitka build output
+build/
+*.build/
+
+# Packaging output
+dist/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
