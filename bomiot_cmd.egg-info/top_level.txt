@@ -1,0 +1,1 @@
+bomiot_cmd

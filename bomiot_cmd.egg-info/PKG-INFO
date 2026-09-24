@@ -1,0 +1,6 @@
+Metadata-Version: 2.1
+Name: bomiot_cmd
+Version: 0.1.0
+Summary: Bomiot CMD library
+Requires-Python: >=3.10
+License-File: LICENSE

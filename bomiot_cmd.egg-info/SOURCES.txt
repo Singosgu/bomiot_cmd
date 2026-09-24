@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+setup.py
+E:/Github_desktop/bomiot_cmd/build/bomiot_cmd.cp311-win_amd64.pyd
+bomiot_cmd.egg-info/PKG-INFO
+bomiot_cmd.egg-info/SOURCES.txt
+bomiot_cmd.egg-info/dependency_links.txt
+bomiot_cmd.egg-info/not-zip-safe
+bomiot_cmd.egg-info/top_level.txt
