@@ -55,13 +55,24 @@ jobs:
         run: |
           python setup.py bdist_wheel
 
+      - name: Show wheel contents
+        working-directory: bomiot_cmd
+        shell: bash
+        run: |
+          python -c "import zipfile,glob; f=glob.glob('dist/*.whl')[0]; print('---',f); [print(n) for n in zipfile.ZipFile(f).namelist()]"
+
       - name: Repair Linux wheel (manylinux)
         if: runner.os == 'Linux'
         working-directory: bomiot_cmd
+        shell: bash
+        continue-on-error: true
         run: |
-          auditwheel repair dist/*.whl -w repaired/
-          rm -f dist/*-linux_*.whl
-          mv repaired/*.whl dist/
+          if auditwheel repair dist/*.whl -w repaired/; then
+            rm -f dist/*.whl
+            mv repaired/*.whl dist/
+          else
+            echo "auditwheel repair failed; keeping original platform wheel"
+          fi
 
       - name: List wheels
         working-directory: bomiot_cmd

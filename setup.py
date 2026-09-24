@@ -33,13 +33,24 @@ if not COMPILED:
 
 class build_prebuilt_ext(build_ext):
     """Copy the prebuilt Nuitka extension into the wheel's build_lib so it
-    lands at the wheel root (importable as a top-level module)."""
+    lands at the wheel root (importable as a top-level module).
 
-    def build_extension(self, ext):
-        dest = self.get_ext_fullpath(ext.name)
-        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-        shutil.copy2(ext.sources[0], dest)
-        # distutils normally writes a .pyi stub; skip it for prebuilt files.
+    We override run() directly instead of build_extension(): the base
+    run()/build_extensions() assumes C/C++ sources and may skip an ext
+    whose sources list a .so/.pyd, leaving the wheel without the binary.
+    """
+
+    def run(self):
+        self.mkpath(self.build_lib)
+        for ext in self.extensions:
+            dest = self.get_ext_fullpath(ext.name)
+            os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+            shutil.copy2(ext.sources[0], dest)
+            print(f"[build_prebuilt_ext] {ext.sources[0]} -> {dest}", flush=True)
+
+    def get_outputs(self):
+        # Tell bdist_wheel exactly which files we produced.
+        return [self.get_ext_fullpath(ext.name) for ext in self.extensions]
 
 
 setup(
