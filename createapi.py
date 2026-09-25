@@ -4,8 +4,8 @@ import os
 import sys
 from pathlib import Path
 from configparser import ConfigParser
-from .copyfile import copy_files
-from .changeapps import create_project_apps_py
+from bomiot_cmd.copyfile import copy_files
+from bomiot_cmd.changeapps import create_project_apps_py
 
 
 def new_api(folder: str):

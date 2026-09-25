@@ -2,7 +2,7 @@ from os.path import join, exists
 from os import makedirs, getcwd, rename
 import shutil
 from pathlib import Path
-from .init import create_file
+from bomiot_cmd.init import create_file
 import sys
 
 

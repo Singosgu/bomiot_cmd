@@ -4,10 +4,10 @@ import os
 import sys
 import shutil
 from pathlib import Path
-from .init import create_file
+from bomiot_cmd.init import create_file
 import importlib.metadata
 from configparser import ConfigParser
-from .copyfile import copy_files
+from bomiot_cmd.copyfile import copy_files
 import logging
 
 

@@ -7,8 +7,8 @@ from pathlib import Path
 from .init import create_file
 from configparser import ConfigParser
 import importlib.metadata
-from .copyfile import copy_files
-from .changeapps import create_plugins_apps_py
+from bomiot_cmd.copyfile import copy_files
+from bomiot_cmd.changeapps import create_plugins_apps_py
 
 
 def plugins(folder: str):
