@@ -114,7 +114,7 @@ jobs:
             bash -c '
               set -e
               pip install --upgrade pip
-              pip install patchelf "Nuitka==4.2.2" "tomlkit==0.15.1" "colorama>=0.4" setuptools wheel auditwheel
+              pip install patchelf "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel auditwheel
               rm -rf bomiot_cmd/build
               python -m nuitka --mode=module \
                 --include-package=bomiot_cmd \

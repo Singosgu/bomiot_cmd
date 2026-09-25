@@ -1,13 +1,15 @@
 """
 Bomiot Builder
 
-从项目根目录的 builder.toml 读取配置，调用编译器进行 standalone 编译。
+Invokes the compiler to perform a standalone build. Core packages/modules/data
+files are hardcoded as defaults; builder.toml in the project root directory is
+optional and only appends extra entries on top of the defaults.
 
-用法:
+Usage:
     bomiot build
 
-配置文件:
-    builder.toml (项目根目录)
+Config file (optional):
+    builder.toml (project root directory)
 """
 
 import os
@@ -23,33 +25,88 @@ import tomlkit
 
 
 # ---------------------------------------------------------------------------
-# 1. 读取 builder.toml
+# Default compiler arguments (hardcoded; builder.toml can append extras).
+# ---------------------------------------------------------------------------
+
+DEFAULT_INCLUDE_PACKAGES = [
+    "bomiot",
+    "django",
+    "fastapi",
+    "flask",
+    "orjson",
+    "uvicorn",
+    "pandas",
+    "openpyxl",
+    "watchdog",
+    "tomlkit",
+    "psutil",
+    "xlsxwriter",
+    "requests",
+    "httptools",
+    "aiofiles",
+    "starlette",
+    "bomiot_asgi",
+    "bomiot_message",
+    "bomiot_token",
+    "django_filters",
+    "rest_framework",
+    "rest_framework_csv",
+    "django_apscheduler",
+    "corsheaders",
+    "greaterwms",
+    "PIL",
+]
+
+DEFAULT_INCLUDE_MODULES = [
+    "django.core.management",
+    "bomiot_cmd",
+]
+
+DEFAULT_NOFOLLOW_IMPORT_TO = [
+    "pandas.tests",
+]
+
+DEFAULT_INCLUDE_DATA_FILES = [
+    ".gitignore=.gitignore",
+    "setup.ini=setup.ini",
+    "splash.png=splash.png",
+    "apps.json=apps.json",
+    "greaterwms/server.py=greaterwms/server.py",
+    "greaterwms/receiver.py=greaterwms/receiver.py",
+    "greaterwms/files.py=greaterwms/files.py",
+    "greaterwms/task.py=greaterwms/task.py",
+]
+
+
+# ---------------------------------------------------------------------------
+# 1. Read builder.toml
 # ---------------------------------------------------------------------------
 
 def load_config():
-    """从 cwd 的 builder.toml 读取构建配置"""
+    """Read extra build configuration from builder.toml in cwd.
+
+    The file is optional: when absent, only the hardcoded defaults are used.
+    Any list present in builder.toml is appended to the corresponding defaults.
+    """
     toml_path = os.path.join(os.getcwd(), "builder.toml")
     if not os.path.exists(toml_path):
-        raise RuntimeError(
-            f"未找到 builder.toml: {toml_path}\n"
-            "请在项目根目录创建 builder.toml 配置文件"
-        )
+        return {}
     with open(toml_path, "r", encoding="utf-8") as f:
         data = tomlkit.parse(f.read())
-    return data["build"]
+    return data.get("build", {})
 
 
 # ---------------------------------------------------------------------------
-# 2. 读取 app_name 和 version（从 launcher.py）
+# 2. Read app_name and version from launcher.py
 # ---------------------------------------------------------------------------
 
 def read_launcher_meta():
-    """从 launcher.py 读取 app_name 和 version"""
+    """Read app_name and version from launcher.py."""
     app_name = None
     version = None
     launcher_path = os.path.join(os.getcwd(), "launcher.py")
     if not os.path.exists(launcher_path):
-        raise RuntimeError(f"未找到 launcher.py: {launcher_path}")
+        raise RuntimeError(f"launcher.py not found: {launcher_path}")
     with open(launcher_path, "r", encoding="utf-8") as f:
         for line in f:
             m = re.match(r'^app_name\s*=\s*"([^"]+)"', line)
@@ -59,18 +116,18 @@ def read_launcher_meta():
             if m:
                 version = m.group(1)
     if not app_name:
-        raise RuntimeError("无法从 launcher.py 读取 app_name")
+        raise RuntimeError("Cannot read app_name from launcher.py")
     if not version:
-        raise RuntimeError("无法从 launcher.py 读取 version")
+        raise RuntimeError("Cannot read version from launcher.py")
     return app_name, version
 
 
 # ---------------------------------------------------------------------------
-# 3. 生成 apps.json
+# 3. Generate apps.json
 # ---------------------------------------------------------------------------
 
 def generate_apps_json():
-    """调用 discovered_apps.main() 生成 apps.json"""
+    """Call discovered_apps.main() to generate apps.json."""
     workspace = os.getcwd()
     sys.path.insert(0, workspace)
     from discovered_apps import main
@@ -78,15 +135,15 @@ def generate_apps_json():
     sys.argv = [sys.argv[0]]
     main(workspace)
     sys.argv = _orig_argv
-    print(f"[builder] apps.json 已生成")
+    print(f"[builder] apps.json generated")
 
 
 # ---------------------------------------------------------------------------
-# 4. 平台相关参数
+# 4. Platform-specific arguments
 # ---------------------------------------------------------------------------
 
 def get_platform():
-    """返回 (os_label, arch_label, display_label, icon_arg)"""
+    """Return (os_label, arch_label, display_label, icon_arg)."""
     system = platform.system()
     machine = platform.machine().lower()
 
@@ -112,11 +169,15 @@ def get_platform():
 
 
 # ---------------------------------------------------------------------------
-# 5. 编译参数
+# 5. Compiler arguments
 # ---------------------------------------------------------------------------
 
 def build_compiler_args(app_name, version, os_label, icon_arg, config):
-    """组装编译器命令行参数"""
+    """Assemble the compiler command-line arguments.
+
+    Hardcoded defaults are always included; any entries in builder.toml are
+    appended on top (duplicates are skipped).
+    """
     args = [
         "Bomiot",  # argv[0] (display only; actual module is -m nuitka)
         f"{app_name}.py",
@@ -144,17 +205,27 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
             "--macos-app-console-mode=disable",
         ])
 
-    for pkg in config["include_packages"]:
+    # Merge hardcoded defaults with extras from builder.toml (dedup).
+    def _merged(defaults, extra_key):
+        seen = set(defaults)
+        result = list(defaults)
+        for item in config.get(extra_key, []):
+            if item not in seen:
+                seen.add(item)
+                result.append(item)
+        return result
+
+    for pkg in _merged(DEFAULT_INCLUDE_PACKAGES, "include_packages"):
         args.append(f"--include-package={pkg}")
         args.append(f"--include-package-data={pkg}")
 
-    for mod in config.get("include_modules", []):
+    for mod in _merged(DEFAULT_INCLUDE_MODULES, "include_modules"):
         args.append(f"--include-module={mod}")
 
-    for mod in config.get("nofollow_import_to", []):
+    for mod in _merged(DEFAULT_NOFOLLOW_IMPORT_TO, "nofollow_import_to"):
         args.append(f"--nofollow-import-to={mod}")
 
-    for data in config.get("include_data_files", []):
+    for data in _merged(DEFAULT_INCLUDE_DATA_FILES, "include_data_files"):
         args.append(f"--include-data-file={data}")
 
     return args
@@ -182,11 +253,11 @@ def run_compiler(args):
 
 
 # ---------------------------------------------------------------------------
-# 6. 杀掉残留的应用进程
+# 6. Kill leftover application processes
 # ---------------------------------------------------------------------------
 
 def kill_app_process(app_name):
-    """杀掉同名应用进程，释放被占用的 .pyd/.dll 文件"""
+    """Kill processes with the same name to release locked .pyd/.dll files."""
     import psutil
     target = app_name.lower()
     for proc in psutil.process_iter(["pid", "name"]):
@@ -194,17 +265,17 @@ def kill_app_process(app_name):
         if name.startswith(target) or name.startswith(target + ".exe"):
             try:
                 proc.kill()
-                print(f"[builder] 杀掉残留进程: {name} (PID {proc.info['pid']})")
+                print(f"[builder] killed leftover process: {name} (PID {proc.info['pid']})")
             except Exception as e:
-                print(f"[builder] 杀掉进程失败 {name}: {e}")
+                print(f"[builder] failed to kill process {name}: {e}")
 
 
 # ---------------------------------------------------------------------------
-# 7. 重命名输出目录
+# 7. Rename output directory
 # ---------------------------------------------------------------------------
 
 def rename_dist_folder(app_name, folder_name):
-    """将 {app_name}.dist 重命名为 {app_name}-{version}-{display}"""
+    """Rename {app_name}.dist to {app_name}-{version}-{display}."""
     src = os.path.join("build", f"{app_name}.dist")
     dst = os.path.join("build", folder_name)
 
@@ -213,26 +284,26 @@ def rename_dist_folder(app_name, folder_name):
 
     if os.path.isdir(src):
         shutil.move(src, dst)
-        print(f"[builder] 重命名: {src} -> {dst}")
+        print(f"[builder] renamed: {src} -> {dst}")
     else:
         app_bundle = os.path.join("build", f"{app_name}.app")
         if os.path.isdir(app_bundle):
             shutil.move(app_bundle, dst)
-            print(f"[builder] 重命名(.app): {app_bundle} -> {dst}")
+            print(f"[builder] renamed (.app): {app_bundle} -> {dst}")
         else:
-            print(f"[builder] 警告: {src} 和 .app bundle 都不存在")
+            print(f"[builder] warning: neither {src} nor .app bundle exists")
 
 
 # ---------------------------------------------------------------------------
-# 7. 生成 manifest.json（增量更新用）
+# 7. Generate manifest.json (for incremental updates)
 # ---------------------------------------------------------------------------
 
 BLOCK_SIZE = 1024 * 1024          # 1MB
-BLOCK_THRESHOLD = 8 * 1024 * 1024  # >=8MB 的文件用块级哈希
+BLOCK_THRESHOLD = 8 * 1024 * 1024  # files >= 8MB use block-level hashing
 
 
 def load_gitignore(dist_dir):
-    """加载 .gitignore 规则"""
+    """Load .gitignore rules."""
     patterns = []
     for path in [os.path.join(dist_dir, ".gitignore"), ".gitignore"]:
         if os.path.exists(path):
@@ -245,7 +316,7 @@ def load_gitignore(dist_dir):
 
 
 def is_ignored(rel_path, patterns):
-    """检查文件是否被 .gitignore 忽略"""
+    """Check whether a file is ignored by .gitignore."""
     basename = os.path.basename(rel_path)
     for pattern in patterns:
         if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(basename, pattern):
@@ -258,12 +329,12 @@ def is_ignored(rel_path, patterns):
 
 
 def generate_manifest(app_name, version, os_label, arch, folder_name):
-    """扫描构建产物，生成 manifest.json"""
+    """Scan build output and generate manifest.json."""
     dist_dir = os.path.join("build", folder_name)
     manifest_name = f"manifest-{os_label}-{arch}.json"
 
     if not os.path.isdir(dist_dir):
-        raise RuntimeError(f"构建产物目录不存在: {dist_dir}")
+        raise RuntimeError(f"Build output directory does not exist: {dist_dir}")
 
     ignore_patterns = load_gitignore(dist_dir)
     files = {}
@@ -310,19 +381,19 @@ def generate_manifest(app_name, version, os_label, arch, folder_name):
     in_dist = os.path.join(dist_dir, manifest_name)
     with open(in_dist, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
-    print(f"[builder] 生成 {in_dist}: {len(files)} 个文件")
+    print(f"[builder] generated {in_dist}: {len(files)} files")
 
     shutil.copyfile(in_dist, os.path.join("build", manifest_name))
-    print(f"[builder] 复制到 build/{manifest_name}")
+    print(f"[builder] copied to build/{manifest_name}")
 
 
 # ---------------------------------------------------------------------------
-# 8. 主流程
+# 8. Main flow
 # ---------------------------------------------------------------------------
 
 def build():
-    """bomiot build 入口"""
-    # 1. 读取配置
+    """bomiot build entry point."""
+    # 1. Read config
     config = load_config()
 
     env_app = os.environ.get("APP_NAME")
@@ -331,20 +402,20 @@ def build():
         app_name, version = env_app, env_version
     else:
         app_name, version = read_launcher_meta()
-    print(f"[builder] 应用: {app_name}  版本: {version}")
+    print(f"[builder] app: {app_name}  version: {version}")
 
-    # 2. 生成 apps.json
+    # 2. Generate apps.json
     generate_apps_json()
 
-    # 3. 获取平台信息
+    # 3. Get platform info
     os_label, arch, display, icon_arg = get_platform()
     folder_name = f"{app_name}-{version}-{display}"
-    print(f"[builder] 平台: {display} ({os_label}/{arch})")
+    print(f"[builder] platform: {display} ({os_label}/{arch})")
 
-    # 4. 复制 launcher.py -> {app_name}.py
+    # 4. Copy launcher.py -> {app_name}.py
     shutil.copy("launcher.py", f"{app_name}.py")
 
-    # 5. 设置环境变量
+    # 5. Set environment variables
     os.environ["DJANGO_SETTINGS_MODULE"] = "bomiot.server.server.settings"
     os.environ["RUN_MAIN"] = "true"
     workspace = os.getcwd()
@@ -352,24 +423,24 @@ def build():
     os.environ["PYTHONPATH"] = f"{workspace}{sep}{os.path.join(workspace, 'bomiot')}"
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
-    # 6. 运行编译器
+    # 6. Run compiler
     args = build_compiler_args(app_name, version, os_label, icon_arg, config)
     run_compiler(args)
 
-    # 7. 杀掉残留的应用进程（释放被占用的 .pyd/.dll）
+    # 7. Kill leftover app processes (release locked .pyd/.dll files)
     kill_app_process(app_name)
 
-    # 8. 重命名输出目录
+    # 8. Rename output directory
     rename_dist_folder(app_name, folder_name)
 
-    # 8. 生成 manifest.json
+    # 8. Generate manifest.json
     generate_manifest(app_name, version, os_label, arch, folder_name)
 
-    # 9. 清理临时文件
+    # 9. Clean up temp files
     temp_py = f"{app_name}.py"
     if os.path.exists(temp_py):
         os.remove(temp_py)
 
-    print(f"\n[builder] 构建完成!")
-    print(f"[builder] 产物目录: build/{folder_name}")
-    print(f"[builder] Manifest: build/manifest-{os_label}-{arch}.json")
+    print(f"\n[builder] build complete!")
+    print(f"[builder] output dir: build/{folder_name}")
+    print(f"[builder] manifest: build/manifest-{os_label}-{arch}.json")
