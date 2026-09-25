@@ -16,12 +16,19 @@ import os
 import sys
 import re
 import json
+import time
 import shutil
 import hashlib
 import fnmatch
 import platform
 import subprocess
 import tomlkit
+import requests
+from bomiot_token import encrypt_info
+
+
+AUTH_URL = "https://www.bomiot.com/auth/"
+ONE_MONTH_SECONDS = 30 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
@@ -388,11 +395,79 @@ def generate_manifest(app_name, version, os_label, arch, folder_name):
 
 
 # ---------------------------------------------------------------------------
+# Sponsor status check
+# ---------------------------------------------------------------------------
+
+def check_sponsor():
+    """Verify sponsor status by sending encrypted keys to the auth server.
+
+    Uses bomiot_token.encrypt_info() to generate COMMUNITY_KEY and SPONSOR_KEY,
+    POSTs them as JSON to the auth endpoint, and prints the response. Based on
+    the returned ``expired`` timestamp it prints a reminder when the sponsor
+    time is within one month of expiring, or an expiry notice when overdue.
+
+    Returns:
+        True if the sponsor is valid and the build may proceed;
+        False if expired, the response is invalid, or the request failed.
+    """
+    community_key = encrypt_info()
+    sponsor_key = encrypt_info()
+
+    payload = {
+        "COMMUNITY_KEY": community_key,
+        "SPONSOR_KEY": sponsor_key,
+    }
+
+    try:
+        resp = requests.post(
+            AUTH_URL,
+            json=payload,
+            headers={"Authed": "Bomiot"},
+            timeout=10,
+        )
+        data = resp.json()
+    except Exception as e:
+        print(f"[builder] auth request failed: {e}")
+        return False
+
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+
+    expired = data.get("expired")
+    if expired is None:
+        print("[builder] no 'expired' field in response")
+        return False
+
+    # The server may return seconds or milliseconds; normalise to seconds.
+    if expired > 1e12:
+        expired = expired / 1000.0
+
+    now = time.time()
+    remaining = expired - now
+
+    if remaining <= 0:
+        print("你的Sponsor时间已经到期，请到官网继续订阅")
+        return False
+
+    if remaining <= ONE_MONTH_SECONDS:
+        days = int(remaining // 86400)
+        hours = int((remaining % 86400) // 3600)
+        minutes = int((remaining % 3600) // 60)
+        print(f"您的Sponsor时间还有{days}天{hours}小时{minutes}分钟就到期")
+    # remaining > one month: print nothing
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # 8. Main flow
 # ---------------------------------------------------------------------------
 
 def build():
     """bomiot build entry point."""
+    # 0. Check sponsor status; abort the build if expired or check fails.
+    if not check_sponsor():
+        return
+
     # 1. Read config
     config = load_config()
 
