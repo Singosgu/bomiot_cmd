@@ -1,7 +1,7 @@
 """
-Bomiot Builder - Nuitka 构建脚本
+Bomiot Builder
 
-从项目根目录的 builder.toml 读取配置，调用 Nuitka 进行 standalone 编译。
+从项目根目录的 builder.toml 读取配置，调用编译器进行 standalone 编译。
 
 用法:
     bomiot build
@@ -112,13 +112,13 @@ def get_platform():
 
 
 # ---------------------------------------------------------------------------
-# 5. Nuitka 构建
+# 5. 编译参数
 # ---------------------------------------------------------------------------
 
-def build_nuitka_args(app_name, version, os_label, icon_arg, config):
-    """组装 Nuitka 命令行参数"""
+def build_compiler_args(app_name, version, os_label, icon_arg, config):
+    """组装编译器命令行参数"""
     args = [
-        "nuitka",  # argv[0]
+        "bomiot",  # argv[0] (display only; actual module is -m nuitka)
         f"{app_name}.py",
         "--mode=standalone",
         "--jobs=16",
@@ -160,15 +160,25 @@ def build_nuitka_args(app_name, version, os_label, icon_arg, config):
     return args
 
 
-def run_nuitka(args):
-    """调用 Nuitka 进行编译（子进程方式，避免 sys.exit 终止 builder）"""
-    print(f"[builder] Nuitka 参数: {' '.join(args[1:])}")
-    result = subprocess.run(
+def run_compiler(args):
+    """Run the compiler (subprocess to avoid sys.exit killing the builder)."""
+    print(f"[builder] bomiot args: {' '.join(args[1:])}")
+    proc = subprocess.Popen(
         [sys.executable, "-m", "nuitka"] + args[1:],
-        env=os.environ.copy()
+        env=os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+        text=True,
+        errors="replace",
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"Nuitka 编译失败，退出码: {result.returncode}")
+    for line in proc.stdout:
+        # Replace the compiler brand with bomiot in all log output.
+        line = line.replace("Nuitka", "bomiot").replace("NUITKA", "BOMIOT")
+        print(line, end="")
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(f"bomiot compilation failed, exit code: {proc.returncode}")
 
 
 # ---------------------------------------------------------------------------
@@ -342,9 +352,9 @@ def build():
     os.environ["PYTHONPATH"] = f"{workspace}{sep}{os.path.join(workspace, 'bomiot')}"
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
-    # 6. 运行 Nuitka
-    args = build_nuitka_args(app_name, version, os_label, icon_arg, config)
-    run_nuitka(args)
+    # 6. 运行编译器
+    args = build_compiler_args(app_name, version, os_label, icon_arg, config)
+    run_compiler(args)
 
     # 7. 杀掉残留的应用进程（释放被占用的 .pyd/.dll）
     kill_app_process(app_name)
