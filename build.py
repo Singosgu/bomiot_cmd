@@ -118,7 +118,7 @@ def get_platform():
 def build_compiler_args(app_name, version, os_label, icon_arg, config):
     """组装编译器命令行参数"""
     args = [
-        "bomiot",  # argv[0] (display only; actual module is -m nuitka)
+        "Bomiot",  # argv[0] (display only; actual module is -m nuitka)
         f"{app_name}.py",
         "--mode=standalone",
         "--jobs=16",
@@ -162,7 +162,7 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
 
 def run_compiler(args):
     """Run the compiler (subprocess to avoid sys.exit killing the builder)."""
-    print(f"[builder] bomiot args: {' '.join(args[1:])}")
+    print(f"[builder] Bomiot args: {' '.join(args[1:])}")
     proc = subprocess.Popen(
         [sys.executable, "-m", "nuitka"] + args[1:],
         env=os.environ.copy(),
@@ -173,12 +173,12 @@ def run_compiler(args):
         errors="replace",
     )
     for line in proc.stdout:
-        # Replace the compiler brand with bomiot in all log output.
-        line = line.replace("Nuitka", "bomiot").replace("NUITKA", "BOMIOT")
+        # Replace the compiler brand with Bomiot in all log output.
+        line = line.replace("Nuitka", "Bomiot").replace("NUITKA", "BOMIOT")
         print(line, end="")
     proc.wait()
     if proc.returncode != 0:
-        raise RuntimeError(f"bomiot compilation failed, exit code: {proc.returncode}")
+        raise RuntimeError(f"Bomiot compilation failed, exit code: {proc.returncode}")
 
 
 # ---------------------------------------------------------------------------
