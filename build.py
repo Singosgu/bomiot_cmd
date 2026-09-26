@@ -71,6 +71,7 @@ DEFAULT_INCLUDE_MODULES = [
 
 DEFAULT_NOFOLLOW_IMPORT_TO = [
     "pandas.tests",
+    "node_modules",
 ]
 
 DEFAULT_INCLUDE_DATA_FILES = [
@@ -300,6 +301,14 @@ def rename_dist_folder(app_name, folder_name):
         else:
             print(f"[builder] warning: neither {src} nor .app bundle exists")
 
+    # Remove node_modules from the final build output, if any.
+    for root, dirs, _ in os.walk(dst):
+        if "node_modules" in dirs:
+            nm_path = os.path.join(root, "node_modules")
+            shutil.rmtree(nm_path)
+            print(f"[builder] removed: {nm_path}")
+            dirs.remove("node_modules")
+
 
 # ---------------------------------------------------------------------------
 # 7. Generate manifest.json (for incremental updates)
@@ -323,7 +332,14 @@ def load_gitignore(dist_dir):
 
 
 def is_ignored(rel_path, patterns):
-    """Check whether a file is ignored by .gitignore."""
+    """Check whether a file is ignored by .gitignore.
+
+    ``node_modules`` is always excluded regardless of .gitignore rules.
+    """
+    # Always exclude node_modules from the build output / manifest.
+    if "node_modules" in rel_path.split("/"):
+        return True
+
     basename = os.path.basename(rel_path)
     for pattern in patterns:
         if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(basename, pattern):
