@@ -57,7 +57,7 @@ class build_prebuilt_ext(build_ext):
 
 setup(
     name="bomiot_cmd",
-    version="0.1.7",
+    version="0.1.8",
     description="Bomiot CMD library",
     ext_modules=[Extension("bomiot_cmd", sources=[COMPILED[0]])],
     cmdclass={"build_ext": build_prebuilt_ext},

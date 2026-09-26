@@ -187,6 +187,7 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
         f"{app_name}.py",
         "--mode=standalone",
         "--jobs=16",
+        "--ccache",
         f"--company-name={app_name}",
         f"--product-name={app_name}",
         f"--file-version={version}",
