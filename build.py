@@ -445,14 +445,14 @@ def check_sponsor():
     remaining = expired - now
 
     if remaining <= 0:
-        print("你的Sponsor时间已经到期，请到官网继续订阅")
+        print("Your Sponsor subscription has expired, please renew on the official website")
         return False
 
     if remaining <= ONE_MONTH_SECONDS:
         days = int(remaining // 86400)
         hours = int((remaining % 86400) // 3600)
         minutes = int((remaining % 3600) // 60)
-        print(f"您的Sponsor时间还有{days}天{hours}小时{minutes}分钟就到期")
+        print(f"Your Sponsor subscription expires in {days} days {hours} hours {minutes} minutes")
     # remaining > one month: print nothing
 
     return True
