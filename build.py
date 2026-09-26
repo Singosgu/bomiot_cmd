@@ -79,10 +79,6 @@ DEFAULT_INCLUDE_DATA_FILES = [
     "setup.ini=setup.ini",
     "splash.png=splash.png",
     "apps.json=apps.json",
-    "greaterwms/server.py=greaterwms/server.py",
-    "greaterwms/receiver.py=greaterwms/receiver.py",
-    "greaterwms/files.py=greaterwms/files.py",
-    "greaterwms/task.py=greaterwms/task.py",
 ]
 
 
