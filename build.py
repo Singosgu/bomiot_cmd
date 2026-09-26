@@ -193,7 +193,6 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
         f"--product-version={version}",
         f"--copyright=Copyright (c) 2020 {app_name}",
         icon_arg,
-        "--lto=yes",
         "--enable-plugin=tk-inter",
         "--module-parameter=django-settings-module=bomiot.server.server.settings",
         "--output-dir=build",
