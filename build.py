@@ -30,7 +30,6 @@ from bomiot_token import encrypt_info
 AUTH_URL = "https://www.bomiot.com/auth/"
 ONE_MONTH_SECONDS = 30 * 24 * 3600
 
-
 # ---------------------------------------------------------------------------
 # Default compiler arguments (hardcoded; builder.toml can append extras).
 # ---------------------------------------------------------------------------
@@ -71,6 +70,11 @@ DEFAULT_INCLUDE_MODULES = [
 
 DEFAULT_NOFOLLOW_IMPORT_TO = [
     "pandas.tests",
+    "django.test",
+    "rest_framework.tests",
+    "IPython",
+    "pytest",
+    "unittest",
     "node_modules",
 ]
 
@@ -182,11 +186,16 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
     Hardcoded defaults are always included; any entries in builder.toml are
     appended on top (duplicates are skipped).
     """
+
+    jobs = max(1, (os.cpu_count() or 4) - 1)
+
     args = [
         "Bomiot",  # argv[0] (display only; actual module is -m nuitka)
         f"{app_name}.py",
         "--mode=standalone",
-        "--jobs=16",
+        "--assume-yes-for-downloads",
+        "--show-progress",
+        f"--jobs={jobs}",
         f"--company-name={app_name}",
         f"--product-name={app_name}",
         f"--file-version={version}",
@@ -475,58 +484,69 @@ def check_sponsor():
 
 def build():
     """bomiot build entry point."""
-    # 0. Check sponsor status; abort the build if expired or check fails.
-    if not check_sponsor():
-        return
+    start_time = time.time()
 
-    # 1. Read config
-    config = load_config()
+    def _print_elapsed():
+        elapsed = time.time() - start_time
+        mins = int(elapsed // 60)
+        secs = elapsed % 60
+        print(f"\n[builder] total build time: {mins} min {secs:.1f} sec")
 
-    env_app = os.environ.get("APP_NAME")
-    env_version = os.environ.get("BASE_VERSION")
-    if env_app and env_version:
-        app_name, version = env_app, env_version
-    else:
-        app_name, version = read_launcher_meta()
-    print(f"[builder] app: {app_name}  version: {version}")
+    try:
+        # 0. Check sponsor status; abort the build if expired or check fails.
+        if not check_sponsor():
+            return
 
-    # 2. Generate apps.json
-    generate_apps_json()
+        # 1. Read config
+        config = load_config()
 
-    # 3. Get platform info
-    os_label, arch, display, icon_arg = get_platform()
-    folder_name = f"{app_name}-{version}-{display}"
-    print(f"[builder] platform: {display} ({os_label}/{arch})")
+        env_app = os.environ.get("APP_NAME")
+        env_version = os.environ.get("BASE_VERSION")
+        if env_app and env_version:
+            app_name, version = env_app, env_version
+        else:
+            app_name, version = read_launcher_meta()
+        print(f"[builder] app: {app_name}  version: {version}")
 
-    # 4. Copy launcher.py -> {app_name}.py
-    shutil.copy("launcher.py", f"{app_name}.py")
+        # 2. Generate apps.json
+        generate_apps_json()
 
-    # 5. Set environment variables
-    os.environ["DJANGO_SETTINGS_MODULE"] = "bomiot.server.server.settings"
-    os.environ["RUN_MAIN"] = "true"
-    workspace = os.getcwd()
-    sep = ";" if os_label == "windows" else ":"
-    os.environ["PYTHONPATH"] = f"{workspace}{sep}{os.path.join(workspace, 'bomiot')}"
-    os.environ["PYTHONIOENCODING"] = "utf-8"
+        # 3. Get platform info
+        os_label, arch, display, icon_arg = get_platform()
+        folder_name = f"{app_name}-{version}-{display}"
+        print(f"[builder] platform: {display} ({os_label}/{arch})")
 
-    # 6. Run compiler
-    args = build_compiler_args(app_name, version, os_label, icon_arg, config)
-    run_compiler(args)
+        # 4. Copy launcher.py -> {app_name}.py
+        shutil.copy("launcher.py", f"{app_name}.py")
 
-    # 7. Kill leftover app processes (release locked .pyd/.dll files)
-    kill_app_process(app_name)
+        # 5. Set environment variables
+        os.environ["DJANGO_SETTINGS_MODULE"] = "bomiot.server.server.settings"
+        os.environ["RUN_MAIN"] = "true"
+        workspace = os.getcwd()
+        sep = ";" if os_label == "windows" else ":"
+        os.environ["PYTHONPATH"] = f"{workspace}{sep}{os.path.join(workspace, 'bomiot')}"
+        os.environ["PYTHONIOENCODING"] = "utf-8"
 
-    # 8. Rename output directory
-    rename_dist_folder(app_name, folder_name)
+        # 6. Run compiler
+        args = build_compiler_args(app_name, version, os_label, icon_arg, config)
+        run_compiler(args)
 
-    # 8. Generate manifest.json
-    generate_manifest(app_name, version, os_label, arch, folder_name)
+        # 7. Kill leftover app processes (release locked .pyd/.dll files)
+        kill_app_process(app_name)
 
-    # 9. Clean up temp files
-    temp_py = f"{app_name}.py"
-    if os.path.exists(temp_py):
-        os.remove(temp_py)
+        # 8. Rename output directory
+        rename_dist_folder(app_name, folder_name)
 
-    print(f"\n[builder] build complete!")
-    print(f"[builder] output dir: build/{folder_name}")
-    print(f"[builder] manifest: build/manifest-{os_label}-{arch}.json")
+        # 8. Generate manifest.json
+        generate_manifest(app_name, version, os_label, arch, folder_name)
+
+        # 9. Clean up temp files
+        temp_py = f"{app_name}.py"
+        if os.path.exists(temp_py):
+            os.remove(temp_py)
+
+        print(f"\n[builder] build complete!")
+        print(f"[builder] output dir: build/{folder_name}")
+        print(f"[builder] manifest: build/manifest-{os_label}-{arch}.json")
+    finally:
+        _print_elapsed()
