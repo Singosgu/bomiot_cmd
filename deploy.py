@@ -2,7 +2,9 @@ from os.path import join, exists
 from os import makedirs, getcwd, rename
 import shutil
 from pathlib import Path
+from bomiot_token import encrypt_info
 from bomiot_cmd.init import create_file
+from bomiot_cmd.build import check_sponsor
 import sys
 
 
@@ -12,6 +14,15 @@ def deploy(folder: str):
     :param folder:
     :return:
     """
+
+    # Verify sponsor status before deploying; abort if expired or check fails.
+    community_key, sponsor_key = encrypt_info()
+    payload = {
+        "COMMUNITY_KEY": community_key,
+        "SPONSOR_KEY": sponsor_key,
+    }
+    if not check_sponsor(payload):
+        return
 
     # Create .github folder if it doesn't exist
     github_path = join(getcwd(), '.github')
