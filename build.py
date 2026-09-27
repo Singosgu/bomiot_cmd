@@ -418,26 +418,21 @@ def generate_manifest(app_name, version, os_label, arch, folder_name):
 # Sponsor status check
 # ---------------------------------------------------------------------------
 
-def check_sponsor():
+def check_sponsor(payload):
     """Verify sponsor status by sending encrypted keys to the auth server.
 
-    Uses bomiot_token.encrypt_info() to generate COMMUNITY_KEY and SPONSOR_KEY,
-    POSTs them as JSON to the auth endpoint, and prints the response. Based on
-    the returned ``expired`` timestamp it prints a reminder when the sponsor
-    time is within one month of expiring, or an expiry notice when overdue.
+    Uses the provided payload (COMMUNITY_KEY and SPONSOR_KEY) and POSTs it as
+    JSON to the auth endpoint, then prints the response. Based on the returned
+    ``expired`` timestamp it prints a reminder when the sponsor time is within
+    one month of expiring, or an expiry notice when overdue.
+
+    Args:
+        payload: dict with "COMMUNITY_KEY" and "SPONSOR_KEY".
 
     Returns:
         True if the sponsor is valid and the build may proceed;
         False if expired, the response is invalid, or the request failed.
     """
-    community_key = encrypt_info()
-    sponsor_key = encrypt_info()
-
-    payload = {
-        "COMMUNITY_KEY": community_key,
-        "SPONSOR_KEY": sponsor_key,
-    }
-
     try:
         resp = requests.post(
             AUTH_URL,
@@ -493,8 +488,13 @@ def build():
         print(f"\n[builder] total build time: {mins} min {secs:.1f} sec")
 
     try:
-        # 0. Check sponsor status; abort the build if expired or check fails.
-        if not check_sponsor():
+        # 0. Generate auth keys and check sponsor status.
+        community_key, sponsor_key = encrypt_info()
+        payload = {
+            "COMMUNITY_KEY": community_key,
+            "SPONSOR_KEY": sponsor_key,
+        }
+        if not check_sponsor(payload):
             return
 
         # 1. Read config
@@ -544,6 +544,13 @@ def build():
         temp_py = f"{app_name}.py"
         if os.path.exists(temp_py):
             os.remove(temp_py)
+
+        # 10. Write build.json (auth payload) into the output directory root.
+        output_dir = os.path.join("build", folder_name)
+        build_json_path = os.path.join(output_dir, "build.json")
+        with open(build_json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"[builder] build.json: {build_json_path}")
 
         print(f"\n[builder] build complete!")
         print(f"[builder] output dir: build/{folder_name}")
