@@ -41,12 +41,22 @@ def deploy(folder: str):
     if exists(source_yaml):
         with open(str(source_yaml), 'r', encoding='utf-8') as f:
             yaml_content = f.read()
-        # Inject auth keys into the env section
-        yaml_content = yaml_content.replace(
-            'env:\n',
-            f'env:\n  COMMUNITY_KEY: "{community_key}"\n  SPONSOR_KEY: "{sponsor_key}"\n',
-            1,
+        # Inject auth keys as a top-level (workflow-global) env block,
+        # placed right after the name: line so all jobs share the keys.
+        global_env = (
+            f"\nenv:\n"
+            f"  COMMUNITY_KEY: \"{community_key}\"\n"
+            f"  SPONSOR_KEY: \"{sponsor_key}\"\n"
         )
+        if yaml_content.startswith("name:"):
+            first_newline = yaml_content.find("\n")
+            yaml_content = (
+                yaml_content[: first_newline + 1]
+                + global_env
+                + yaml_content[first_newline + 1 :]
+            )
+        else:
+            yaml_content = global_env.lstrip("\n") + yaml_content
         with open(dest_yaml, 'w', encoding='utf-8') as f:
             f.write(yaml_content)
 
