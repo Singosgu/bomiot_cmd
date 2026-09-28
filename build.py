@@ -503,8 +503,9 @@ def build():
             community_key = os.environ.get("COMMUNITY_KEY", "")
             sponsor_key = os.environ.get("SPONSOR_KEY", "")
             if not community_key or not sponsor_key:
-                print("[builder] CI environment detected but COMMUNITY_KEY / SPONSOR_KEY not set")
-                return
+                msg = "[builder] CI environment detected but COMMUNITY_KEY / SPONSOR_KEY not set"
+                print(msg)
+                raise RuntimeError(msg)
         else:
             community_key, sponsor_key = encrypt_info()
 
@@ -513,6 +514,10 @@ def build():
             "SPONSOR_KEY": sponsor_key,
         }
         if not check_sponsor(payload):
+            # In CI, fail the build loudly so the workflow turns red.
+            # Locally, exit silently after printing the expiry notice.
+            if is_github or is_gitee:
+                raise RuntimeError("Sponsor verification failed in CI; build aborted")
             return
 
         # 1. Read config
