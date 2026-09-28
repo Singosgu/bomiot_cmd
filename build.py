@@ -489,7 +489,25 @@ def build():
 
     try:
         # 0. Generate auth keys and check sponsor status.
-        community_key, sponsor_key = encrypt_info()
+        # CI (GitHub Actions / Gitee Go): use keys from environment variables.
+        # Local / dev: generate keys via encrypt_info().
+        is_github = os.environ.get("GITHUB_ACTIONS") == "true"
+        is_gitee = bool(
+            os.environ.get("GITEE_PIPELINE_NAME")
+            or os.environ.get("GITEE_REPO")
+        )
+
+        if is_github or is_gitee:
+            # Keys are injected into env by the workflow (deploy.py writes them
+            # into greaterwms.yaml env section).
+            community_key = os.environ.get("COMMUNITY_KEY", "")
+            sponsor_key = os.environ.get("SPONSOR_KEY", "")
+            if not community_key or not sponsor_key:
+                print("[builder] CI environment detected but COMMUNITY_KEY / SPONSOR_KEY not set")
+                return
+        else:
+            community_key, sponsor_key = encrypt_info()
+
         payload = {
             "COMMUNITY_KEY": community_key,
             "SPONSOR_KEY": sponsor_key,

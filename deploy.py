@@ -32,11 +32,22 @@ def deploy(folder: str):
     workflows_path = join(github_path, 'workflows')
     if not exists(workflows_path):
         makedirs(workflows_path)
-    # Copy greaterwms.yaml to .github/workflows
-    current_dir = Path(__file__).parent
-    source_yaml = current_dir / 'file' / 'greaterwms.yaml'
+    # Copy greaterwms.yaml from bomiot package to .github/workflows
+    # and inject COMMUNITY_KEY / SPONSOR_KEY into the env section.
+    import bomiot
+    bomiot_dir = Path(bomiot.__file__).parent
+    source_yaml = bomiot_dir / 'cmd' / 'file' / 'greaterwms.yaml'
     dest_yaml = join(workflows_path, 'greaterwms.yaml')
-    if exists(source_yaml) and not exists(dest_yaml):
-        shutil.copy2(str(source_yaml), dest_yaml)
+    if exists(source_yaml):
+        with open(str(source_yaml), 'r', encoding='utf-8') as f:
+            yaml_content = f.read()
+        # Inject auth keys into the env section
+        yaml_content = yaml_content.replace(
+            'env:\n',
+            f'env:\n  COMMUNITY_KEY: "{community_key}"\n  SPONSOR_KEY: "{sponsor_key}"\n',
+            1,
+        )
+        with open(dest_yaml, 'w', encoding='utf-8') as f:
+            f.write(yaml_content)
 
     print(f'Deploy project success')
