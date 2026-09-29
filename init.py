@@ -20,7 +20,9 @@ def create_file(folder: str = ''):
     """
     try:
         working_space = getcwd()
-        file_path = join(Path(__file__).resolve().parent, 'file')
+        # Templates live in the bomiot package at bomiot/cmd/file/
+        import bomiot
+        file_path = join(Path(bomiot.__file__).resolve().parent, 'cmd', 'file')
         
         # Create pyproject.toml if it doesn't exist
         if not exists(join(working_space, 'pyproject.toml')):
