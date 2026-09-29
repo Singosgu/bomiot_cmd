@@ -45,8 +45,9 @@ def project(folder: str):
     
     try:
         makedirs(project_path, exist_ok=True)
-        current_path = Path(__file__).resolve()
-        file_path = join(current_path.parent, 'file')
+        # Templates live in the bomiot package at bomiot/cmd/file/
+        import bomiot
+        file_path = join(Path(bomiot.__file__).resolve().parent, 'cmd', 'file')
 
         # Write init file
         init_file_path = join(project_path, '__init__.py')
@@ -71,7 +72,8 @@ def project(folder: str):
         create_file(str(project_name))
 
         # Copy additional directories
-        copy_files(join(current_path.parent.parent, 'templates'), join(project_path, 'templates'))
+        # Templates dir is at bomiot/templates/
+        copy_files(join(Path(bomiot.__file__).resolve().parent, 'templates'), join(project_path, 'templates'))
 
         print(f'Initialized project workspace {project_name}')
         
