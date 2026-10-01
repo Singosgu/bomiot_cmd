@@ -20,7 +20,9 @@ def new_app(folder: str):
         if sys.argv[2] == 'bomiot':
             print('Invalid app name. Please enter a valid app name.')
         else:
-            current_path = Path(__file__).resolve()
+            # Templates live in the bomiot package at bomiot/cmd/
+            import bomiot
+            bomiot_cmd_dir = join(Path(bomiot.__file__).resolve().parent, 'cmd')
             project_name = 'greaterwms'
             project_path = join(getcwd(), project_name)
             project_config = ConfigParser()
@@ -32,7 +34,7 @@ def new_app(folder: str):
                 else:
                     makedirs(app_path)
 
-                    copy_files(join(current_path.parent, 'extends'), app_path)
+                    copy_files(join(bomiot_cmd_dir, 'extends'), app_path)
 
                     apps_path = join(app_path, 'apps.py')
                     os.remove(apps_path)

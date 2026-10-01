@@ -28,8 +28,10 @@ def plugins(folder: str):
                 print('Plugins directory already exists')
             else:
                 os.makedirs(plugins_path)
-                current_path = Path(__file__).resolve()
-                file_path = join(current_path.parent, 'file')
+                # Templates live in the bomiot package at bomiot/cmd/
+                import bomiot
+                bomiot_cmd_dir = join(Path(bomiot.__file__).resolve().parent, 'cmd')
+                file_path = join(bomiot_cmd_dir, 'file')
 
                 shutil.copy2(join(file_path, '__version__.py'), plugins_path)
 
@@ -48,7 +50,7 @@ def plugins(folder: str):
 
                 create_file('')
 
-                copy_files(join(current_path.parent, 'extends'), plugins_path)
+                copy_files(join(bomiot_cmd_dir, 'extends'), plugins_path)
 
                 apps_path = join(plugins_path, 'apps.py')
                 os.remove(apps_path)

@@ -83,6 +83,10 @@ DEFAULT_INCLUDE_DATA_FILES = [
     "setup.ini=setup.ini",
     "splash.png=splash.png",
     "apps.json=apps.json",
+    "greaterwms/server.py=greaterwms/server.py",
+    "greaterwms/receiver.py=greaterwms/receiver.py",
+    "greaterwms/files.py=greaterwms/files.py",
+    "greaterwms/task.py=greaterwms/task.py"
 ]
 
 
@@ -419,57 +423,19 @@ def generate_manifest(app_name, version, os_label, arch, folder_name):
 # ---------------------------------------------------------------------------
 
 def check_sponsor(payload):
-    """Verify sponsor status by sending encrypted keys to the auth server.
+    """Sponsor verification placeholder.
 
-    Uses the provided payload (COMMUNITY_KEY and SPONSOR_KEY) and POSTs it as
-    JSON to the auth endpoint, then prints the response. Based on the returned
-    ``expired`` timestamp it prints a reminder when the sponsor time is within
-    one month of expiring, or an expiry notice when overdue.
+    The auth server request is disabled. The payload (COMMUNITY_KEY and
+    SPONSOR_KEY) is still generated and written to build.json so that
+    downstream consumers can use it, but no network call is made.
 
     Args:
         payload: dict with "COMMUNITY_KEY" and "SPONSOR_KEY".
 
     Returns:
-        True if the sponsor is valid and the build may proceed;
-        False if expired, the response is invalid, or the request failed.
+        Always True so the build proceeds.
     """
-    try:
-        resp = requests.post(
-            AUTH_URL,
-            json=payload,
-            headers={"Authed": "Bomiot"},
-            timeout=10,
-        )
-        data = resp.json()
-    except Exception as e:
-        print(f"[builder] auth request failed: {e}")
-        return False
-
-    print(json.dumps(data, indent=2, ensure_ascii=False))
-
-    expired = data.get("expired")
-    if expired is None:
-        print("[builder] no 'expired' field in response")
-        return False
-
-    # The server may return seconds or milliseconds; normalise to seconds.
-    if expired > 1e12:
-        expired = expired / 1000.0
-
-    now = time.time()
-    remaining = expired - now
-
-    if remaining <= 0:
-        print("Your Sponsor subscription has expired, please renew on the official website")
-        return False
-
-    if remaining <= ONE_MONTH_SECONDS:
-        days = int(remaining // 86400)
-        hours = int((remaining % 86400) // 3600)
-        minutes = int((remaining % 3600) // 60)
-        print(f"Your Sponsor subscription expires in {days} days {hours} hours {minutes} minutes")
-    # remaining > one month: print nothing
-
+    print(f"[builder] sponsor check skipped (no auth request)")
     return True
 
 
