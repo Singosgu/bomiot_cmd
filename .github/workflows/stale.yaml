@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-22.04]
+        os: [macos-latest, windows-latest, ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
       - name: Install build dependencies
         run: |
           uv pip install --upgrade pip
-          uv pip install "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel
+          uv pip install "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel auditwheel
 
       - name: Compile bomiot_cmd package with Nuitka
         shell: bash
@@ -64,45 +64,18 @@ jobs:
         run: |
           python -c "import zipfile,glob; f=glob.glob('dist/*.whl')[0]; print('---',f); [print(n) for n in zipfile.ZipFile(f).namelist()]"
 
-      - name: Fix wheel tags (manylinux)
+      - name: Repair Linux wheel (manylinux)
         if: runner.os == 'Linux'
         working-directory: bomiot_cmd
         shell: bash
+        continue-on-error: true
         run: |
-          python - <<'PY'
-          import glob, os, zipfile, platform, shutil
-
-          arch = platform.machine().lower()
-          plat_map = {
-              "x86_64": "manylinux_2_17_x86_64",
-              "amd64": "manylinux_2_17_x86_64",
-              "aarch64": "manylinux_2_17_aarch64",
-              "arm64": "manylinux_2_17_aarch64",
-          }
-          if arch.startswith("armv7"):
-              manylinux_tag = "manylinux_2_17_armv7l"
-          else:
-              manylinux_tag = plat_map.get(arch, f"manylinux_2_17_{arch}")
-
-          for wheel in glob.glob("dist/*-linux_*.whl"):
-              name, version, py, abi, plat_ext = os.path.basename(wheel).split("-", 4)
-              new_name = f"{name}-{version}-{py}-{abi}-{manylinux_tag}.whl"
-              new_path = os.path.join("dist", new_name)
-
-              with zipfile.ZipFile(wheel, "r") as zin:
-                  with zipfile.ZipFile(new_path, "w", zipfile.ZIP_DEFLATED) as zout:
-                      for item in zin.infolist():
-                          data = zin.read(item.filename)
-                          if item.filename.endswith(".dist-info/WHEEL"):
-                              lines = data.decode("utf-8").splitlines()
-                              lines = [l for l in lines if not l.startswith("Tag:")]
-                              lines.append(f"Tag: {py}-{abi}-{manylinux_tag}")
-                              data = ("\n".join(lines) + "\n").encode("utf-8")
-                          zout.writestr(item, data)
-
-              os.remove(wheel)
-              print(f"  {os.path.basename(wheel)} -> {new_name}")
-          PY
+          if auditwheel repair dist/*-linux_*.whl -w repaired/; then
+            rm -f dist/*-linux_*.whl
+            mv repaired/*.whl dist/
+          else
+            echo "auditwheel repair failed; keeping original platform wheel"
+          fi
 
       - name: List wheels
         working-directory: bomiot_cmd
@@ -141,7 +114,7 @@ jobs:
             bash -c '
               set -e
               pip install --upgrade pip
-              pip install patchelf "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel
+              pip install patchelf "Nuitka==4.2.2" "tomlkit==0.15.1" "colorama>=0.4" setuptools wheel auditwheel
               rm -rf bomiot_cmd/build
               python -m nuitka --mode=module \
                 --include-package=bomiot_cmd \
@@ -152,28 +125,9 @@ jobs:
               cd bomiot_cmd
               rm -rf dist
               python setup.py bdist_wheel
-              python - <<'"'"'PY'"'"'
-              import glob, os, zipfile, platform
-              arch = platform.machine().lower()
-              plat_map = {"x86_64": "manylinux_2_17_x86_64", "aarch64": "manylinux_2_17_aarch64", "arm64": "manylinux_2_17_aarch64"}
-              manylinux_tag = "manylinux_2_17_armv7l" if arch.startswith("armv7") else plat_map.get(arch, f"manylinux_2_17_{arch}")
-              for wheel in glob.glob("dist/*-linux_*.whl"):
-                  name, version, py, abi, plat_ext = os.path.basename(wheel).split("-", 4)
-                  new_name = f"{name}-{version}-{py}-{abi}-{manylinux_tag}.whl"
-                  new_path = os.path.join("dist", new_name)
-                  with zipfile.ZipFile(wheel, "r") as zin:
-                      with zipfile.ZipFile(new_path, "w", zipfile.ZIP_DEFLATED) as zout:
-                          for item in zin.infolist():
-                              data = zin.read(item.filename)
-                              if item.filename.endswith(".dist-info/WHEEL"):
-                                  lines = data.decode("utf-8").splitlines()
-                                  lines = [l for l in lines if not l.startswith("Tag:")]
-                                  lines.append(f"Tag: {py}-{abi}-{manylinux_tag}")
-                                  data = ("\n".join(lines) + "\n").encode("utf-8")
-                              zout.writestr(item, data)
-                  os.remove(wheel)
-                  print(f"  {os.path.basename(wheel)} -> {new_name}")
-              PY
+              auditwheel repair dist/*-linux_*.whl -w repaired/
+              rm -f dist/*-linux_*.whl
+              mv repaired/*.whl dist/
             '
 
       - name: List wheels
