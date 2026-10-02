@@ -4,7 +4,7 @@ import requests
 from bomiot_cmd.baseurl import baseurl
 
 
-def publish():
+def publish(folder=""):
     """Upload build artifacts to the update server.
 
     Reads manifest-{os}-{arch}.json from the build/ directory, locates the
