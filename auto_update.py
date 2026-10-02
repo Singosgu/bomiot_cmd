@@ -459,7 +459,7 @@ def check_update(app_name, version, status_label=None, progress_bar=None):
         print("[Update] UPDATE_URL is empty, update check skipped")
         return False
     _os, _arch, _display = _detect_platform()
-    manifest_name = f"manifest-{_os}-{_arch}.json"
+    manifest_name = f"manifest--{app_name}-{_os}-{_arch}.json"
     print(f"[Update] Detected platform: {_os} {_arch} ({_display})")
     print(f"[Update] Manifest file name: {manifest_name}")
     print(f"[Update] Manifest URL: {update_url}{manifest_name}")

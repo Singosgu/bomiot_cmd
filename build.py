@@ -364,7 +364,7 @@ def is_ignored(rel_path, patterns):
 def generate_manifest(app_name, version, os_label, arch, folder_name):
     """Scan build output and generate manifest.json."""
     dist_dir = os.path.join("build", folder_name)
-    manifest_name = f"manifest-{os_label}-{arch}.json"
+    manifest_name = f"manifest--{app_name}-{os_label}-{arch}.json"
 
     if not os.path.isdir(dist_dir):
         raise RuntimeError(f"Build output directory does not exist: {dist_dir}")

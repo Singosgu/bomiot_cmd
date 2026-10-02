@@ -27,12 +27,11 @@ def publish(os_label, code, folder=""):
         print("[publisher] build/ directory not found, nothing to publish")
         return False
 
-    # 1. Find the manifest file matching the given os: manifest-{os}-{arch}.json
+    # 1. Find the manifest file matching the given os: manifest--{app_name}-{os}-{arch}.json
     manifest_path = None
     manifest_name = None
-    _prefix = f"manifest-{os_label}-"
     for fn in os.listdir(build_dir):
-        if fn.startswith(_prefix) and fn.endswith(".json"):
+        if fn.startswith("manifest--") and fn.endswith(".json") and f"-{os_label}-" in fn:
             manifest_path = os.path.join(build_dir, fn)
             manifest_name = fn
             break
