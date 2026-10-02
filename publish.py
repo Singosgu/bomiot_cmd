@@ -104,24 +104,28 @@ def publish(os_label, code, folder=""):
 
     try:
         resp = requests.get(check_url, timeout=30)
-        if resp.status_code != 200:
+        if resp.status_code == 404:
+            print("[publisher] server returned 404, treating as no existing version, will upload")
+        elif resp.status_code != 200:
             print(f"[publisher] server check failed, HTTP {resp.status_code}: {resp.text[:500]}")
             return False
 
-        server_info = resp.json()
-        server_app = server_info.get("app_name")
-        server_version = server_info.get("version")
-        print(f"[publisher] server: app_name={server_app}, version={server_version}")
+        if resp.status_code == 200:
+            try:
+                server_info = resp.json()
+            except (ValueError, json.JSONDecodeError):
+                print(f"[publisher] server returned non-JSON response: {resp.text[:500]}")
+                return False
+            server_app = server_info.get("app_name")
+            server_version = server_info.get("version")
+            print(f"[publisher] server: app_name={server_app}, version={server_version}")
 
-        # 6. If server already has the same version, skip upload
-        if server_app == app_name and server_version == version:
-            print("[publisher] server already has this version, skipping upload")
-            return True
+            # 6. If server already has the same version, skip upload
+            if server_app == app_name and server_version == version:
+                print("[publisher] server already has this version, skipping upload")
+                return True
     except requests.RequestException as e:
         print(f"[publisher] server check error: {e}")
-        return False
-    except (ValueError, json.JSONDecodeError):
-        print(f"[publisher] server returned non-JSON response: {resp.text[:500]}")
         return False
 
     # 7. Upload all files (excluding media/) in batches
