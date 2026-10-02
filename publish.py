@@ -129,7 +129,7 @@ def publish(os_label, code, folder=""):
         return False
 
     # 7. Upload all files (excluding media/) in batches
-    update_url = f"{base}/{community_key}/"
+    update_url = f"{base}/auth/{community_key}/"
     print(f"[publisher] update URL: {update_url}")
 
     file_entries = []
