@@ -99,7 +99,7 @@ def publish(os_label, code, folder=""):
 
     # 5. GET {baseurl}/auth/{community_key} to check server version
     base = baseurl().rstrip("/")
-    check_url = f"{base}/auth/{community_key}"
+    check_url = f"{base}/auth/{community_key}/"
     print(f"[publisher] checking server version: GET {check_url}")
 
     try:
