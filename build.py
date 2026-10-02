@@ -63,6 +63,19 @@ DEFAULT_INCLUDE_PACKAGES = [
     "PIL",
 ]
 
+# Only packages that ship static/template/locale data need --include-package-data.
+# Packages without data files (openpyxl, xlsxwriter, requests, aiofiles, etc.)
+# only use --include-package, avoiding FileNotFoundError on stray references.
+DEFAULT_INCLUDE_PACKAGE_DATA = [
+    "bomiot",
+    "django",
+    "greaterwms",
+    "PIL",
+    "rest_framework",
+    "django_filters",
+    "corsheaders",
+]
+
 DEFAULT_INCLUDE_MODULES = [
     "django.core.management",
     "bomiot_cmd",
@@ -76,6 +89,8 @@ DEFAULT_NOFOLLOW_IMPORT_TO = [
     "pytest",
     "unittest",
     "node_modules",
+    "src",
+    "public"
 ]
 
 DEFAULT_INCLUDE_DATA_FILES = [
@@ -233,9 +248,16 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
                 result.append(item)
         return result
 
-    for pkg in _merged(DEFAULT_INCLUDE_PACKAGES, "include_packages"):
-        args.append(f"--include-package={pkg}")
-        args.append(f"--include-package-data={pkg}")
+    code_pkgs = set(_merged(DEFAULT_INCLUDE_PACKAGES, "include_packages"))
+    data_pkgs = set(_merged(DEFAULT_INCLUDE_PACKAGE_DATA, "include_package_data"))
+
+    # Iterate the union so a package can need --include-package-data without
+    # --include-package (data-only packages) or vice versa.
+    for pkg in code_pkgs | data_pkgs:
+        if pkg in code_pkgs:
+            args.append(f"--include-package={pkg}")
+        if pkg in data_pkgs:
+            args.append(f"--include-package-data={pkg}")
 
     for mod in _merged(DEFAULT_INCLUDE_MODULES, "include_modules"):
         args.append(f"--include-module={mod}")
@@ -345,10 +367,20 @@ def is_ignored(rel_path, patterns):
     """Check whether a file is ignored by .gitignore.
 
     ``node_modules`` is always excluded regardless of .gitignore rules.
+    Under ``templates/`` only files inside a ``dist/`` subdirectory are kept;
+    everything else in ``templates/`` is ignored.
     """
+    parts = rel_path.split("/")
+
     # Always exclude node_modules from the build output / manifest.
-    if "node_modules" in rel_path.split("/"):
+    if "node_modules" in parts:
         return True
+
+    # Under templates/ only keep files that live in some dist/ subdirectory.
+    if "templates" in parts:
+        idx = parts.index("templates")
+        if "dist" not in parts[idx:]:
+            return True
 
     basename = os.path.basename(rel_path)
     for pattern in patterns:
