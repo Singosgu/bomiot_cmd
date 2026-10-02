@@ -1,38 +1,43 @@
 import os
 import json
+import sys
 import requests
 from bomiot_cmd.baseurl import baseurl
 
 
-def publish(folder=""):
+def publish(os_label, code, folder=""):
     """Upload build artifacts to the update server.
 
-    Reads manifest-{os}-{arch}.json from the build/ directory, locates the
-    matching output folder, reads COMMUNITY_KEY from build.json inside that
-    folder, constructs the update URL as {baseurl}/{community_key}/, then
-    POSTs all files (including the manifest) to that URL.
+    Accepts two parameters:
+        os_label - OS name (Windows/macOS/Linux), used to locate manifest-{os}-{arch}.json
+        code     - upload authentication code, sent along with the POST request
 
-    Returns True on success, False on any error (missing folder/file, upload failure).
+    Locates the matching manifest, finds the app_name-version-os output folder,
+    reads COMMUNITY_KEY from build.json, then POSTs all files (including manifest)
+    to {baseurl}/{community_key}/.
+
+    Returns True on success, False on any error.
     """
     build_dir = os.path.join(os.getcwd(), "build")
     if not os.path.isdir(build_dir):
         print("[publisher] build/ directory not found, nothing to publish")
         return False
 
-    # 1. Find the manifest file in build/ root (manifest-{os}-{arch}.json)
+    # 1. Find the manifest file matching the given os: manifest-{os}-{arch}.json
     manifest_path = None
     manifest_name = None
+    _prefix = f"manifest-{os_label}-"
     for fn in os.listdir(build_dir):
-        if fn.startswith("manifest-") and fn.endswith(".json"):
+        if fn.startswith(_prefix) and fn.endswith(".json"):
             manifest_path = os.path.join(build_dir, fn)
             manifest_name = fn
             break
 
     if not manifest_path:
-        print("[publisher] manifest-{os}-{arch}.json not found in build/")
+        print(f"[publisher] manifest-{os_label}-{{arch}}.json not found in build/")
         return False
 
-    # 2. Parse manifest to get app_name, version, os, arch
+    # 2. Parse manifest to get app_name, version
     try:
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
@@ -42,23 +47,19 @@ def publish(folder=""):
 
     app_name = manifest.get("app_name")
     version = manifest.get("version")
-    os_label = manifest.get("os")
+    manifest_os = manifest.get("os")
     arch = manifest.get("arch")
 
-    if not all([app_name, version, os_label, arch]):
-        print("[publisher] manifest missing required fields (app_name/version/os/arch)")
+    if not all([app_name, version]):
+        print("[publisher] manifest missing required fields (app_name/version)")
         return False
 
-    print(f"[publisher] manifest: app_name={app_name}, version={version}, os={os_label}, arch={arch}")
+    print(f"[publisher] manifest: app_name={app_name}, version={version}, os={manifest_os}, arch={arch}")
 
-    # 3. Locate the output folder: build/{app_name}-{version}-{display}
-    #    display follows build.py's get_platform() naming (Windows/macOS/Linux).
-    import sys
-    _display_map = {"win32": "Windows", "darwin": "macOS"}
-    _sys_os = os_label if os_label in ("Windows", "macOS", "Linux") else _display_map.get(os_label, os_label)
-    folder_name = f"{app_name}-{version}-{_display_map.get(sys.platform, _sys_os)}"
-
+    # 3. Locate the output folder: build/{app_name}-{version}-{os_label}
+    folder_name = f"{app_name}-{version}-{os_label}"
     output_dir = os.path.join(build_dir, folder_name)
+
     if not os.path.isdir(output_dir):
         # Fallback: match by prefix (app_name-version-) in case display label differs.
         for entry in os.listdir(build_dir):
@@ -69,7 +70,7 @@ def publish(folder=""):
                 break
 
     if not os.path.isdir(output_dir):
-        print(f"[publisher] output folder not found for app_name={app_name}, version={version}")
+        print(f"[publisher] output folder not found for app_name={app_name}, version={version}, os={os_label}")
         return False
 
     print(f"[publisher] output folder: {output_dir}")
@@ -113,12 +114,14 @@ def publish(folder=""):
 
         print(f"[publisher] uploading {len(files_to_upload)} files...")
 
-        # 7. POST all files to the update URL
+        # 7. POST all files to the update URL, along with the auth code
         multipart = []
         for field_name, filename, fh in files_to_upload:
             multipart.append((field_name, (filename, fh, "application/octet-stream")))
 
-        resp = requests.post(update_url, files=multipart, timeout=600)
+        data = {"code": code} if code else None
+
+        resp = requests.post(update_url, files=multipart, data=data, timeout=600)
 
         if resp.status_code in (200, 201):
             print(f"[publisher] upload success, server response: {resp.text[:500]}")
@@ -142,5 +145,7 @@ def publish(folder=""):
 
 
 if __name__ == "__main__":
-    import sys
-    sys.exit(0 if publish() else 1)
+    if len(sys.argv) < 3:
+        print("Usage: python publish.py <os> <code>")
+        sys.exit(1)
+    sys.exit(0 if publish(sys.argv[1], sys.argv[2]) else 1)
