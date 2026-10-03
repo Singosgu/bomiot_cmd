@@ -156,6 +156,7 @@ def publish(os_label, code, folder=""):
         "version": version,
         "os": manifest_os,
         "arch": arch,
+        "code": code,
     }
 
     try:
@@ -189,17 +190,20 @@ def publish(os_label, code, folder=""):
         shutil.rmtree(publish_dir)
     os.makedirs(publish_dir, exist_ok=True)
 
-    # Move manifest into publish/
+    # Copy manifest into publish/
     staged_manifest = os.path.join(publish_dir, manifest_name)
-    shutil.move(manifest_path, staged_manifest)
+    shutil.copy2(manifest_path, staged_manifest)
 
-    # Create a same-named folder inside publish/ and move all files into it
+    # Create a same-named folder inside publish/ and copy all files into it
     staged_folder = os.path.join(publish_dir, folder_name)
     os.makedirs(staged_folder, exist_ok=True)
     for item in os.listdir(output_dir):
         src = os.path.join(output_dir, item)
         dst = os.path.join(staged_folder, item)
-        shutil.move(src, dst)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
 
     # 8. Zip the folder and manifest into {folder_name}.zip
     zip_path = os.path.join(publish_dir, f"{folder_name}.zip")
