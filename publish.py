@@ -1,24 +1,56 @@
 import os
 import json
 import sys
+import shutil
+import zipfile
+import importlib.util
 import requests
 from bomiot_cmd.baseurl import baseurl
 
 
+def _read_launcher_app_name():
+    """Read app_name from launcher.py in the current working directory.
+
+    launcher.py defines ``app_name`` as a module-level variable, so we load
+    the file as a module and read the attribute directly instead of parsing
+    with regex.
+    """
+    launcher_path = os.path.join(os.getcwd(), "launcher.py")
+    if not os.path.exists(launcher_path):
+        print(f"[publisher] launcher.py not found: {launcher_path}")
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("launcher", launcher_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as e:
+        print(f"[publisher] failed to load launcher.py: {e}")
+        return None
+    app_name = getattr(module, "app_name", None)
+    if not app_name:
+        print("[publisher] app_name not found in launcher.py")
+        return None
+    return app_name
+
+
 def publish(os_label, code, folder=""):
-    """Upload build artifacts to the update server.
+    """Package and upload build artifacts to the update server.
 
     Flow:
-        1. Locate manifest-{os}-{arch}.json in build/ by os_label
-        2. Find the {app_name}-{version}-{os_label} output folder
-        3. Read COMMUNITY_KEY from build.json
-        4. GET {baseurl}/auth/{community_key} to fetch server's app_name/version
-        5. If server version matches local manifest, skip upload
-        6. Otherwise POST all files (excluding media/) in batches
+        1. Read app_name from launcher.py (cwd)
+        2. Locate manifest--{app_name}--{os}--*.json in build/
+        3. Parse manifest for app_name/version/os/arch
+        4. Find {app_name}-{version}-{os} output folder (os case-insensitive)
+        5. Read COMMUNITY_KEY/SPONSOR_KEY from build.json inside the folder
+        6. POST {baseurl}/auth/{COMMUNITY_KEY}/ with manifest info; server
+           returns {"msg": bool} -- True means upload is needed
+        7. If upload needed: create publish/, move manifest + output folder
+           into it, zip both into {folder_name}.zip
+        8. POST the zip to {baseurl}/auth/{COMMUNITY_KEY}/upload/
 
     Args:
-        os_label: OS name (Windows/macOS/Linux), used to locate manifest
-        code:     upload authentication code, sent with each POST
+        os_label: OS name (windows/macos/linux), used to locate the manifest
+        code:     user-defined verification code (sent with the upload POST)
 
     Returns True on success (or skip), False on error.
     """
@@ -27,20 +59,28 @@ def publish(os_label, code, folder=""):
         print("[publisher] build/ directory not found, nothing to publish")
         return False
 
-    # 1. Find the manifest file matching the given os: manifest--{app_name}-{os}-{arch}.json
+    # 1. Read app_name from launcher.py
+    app_name = _read_launcher_app_name()
+    if not app_name:
+        return False
+
+    # 2. Locate manifest--{app_name}--{os}--*.json in build/
     manifest_path = None
     manifest_name = None
+    prefix = f"manifest--{app_name}--{os_label}--"
     for fn in os.listdir(build_dir):
-        if fn.startswith("manifest--") and fn.endswith(".json") and f"-{os_label}-" in fn:
+        if fn.startswith(prefix) and fn.endswith(".json"):
             manifest_path = os.path.join(build_dir, fn)
             manifest_name = fn
             break
 
     if not manifest_path:
-        print(f"[publisher] manifest-{os_label}-{{arch}}.json not found in build/")
+        print(f"[publisher] manifest not found in build/ for app_name={app_name}, os={os_label}")
         return False
 
-    # 2. Parse manifest to get app_name, version
+    print(f"[publisher] manifest: {manifest_name}")
+
+    # 3. Parse manifest
     try:
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
@@ -53,32 +93,41 @@ def publish(os_label, code, folder=""):
     manifest_os = manifest.get("os")
     arch = manifest.get("arch")
 
-    if not all([app_name, version]):
-        print("[publisher] manifest missing required fields (app_name/version)")
+    if not all([app_name, version, manifest_os, arch]):
+        print("[publisher] manifest missing required fields (app_name/version/os/arch)")
         return False
 
-    print(f"[publisher] local manifest: app_name={app_name}, version={version}, os={manifest_os}, arch={arch}")
+    print(f"[publisher] manifest info: app_name={app_name}, version={version}, os={manifest_os}, arch={arch}")
 
-    # 3. Locate the output folder: build/{app_name}-{version}-{os_label}
-    folder_name = f"{app_name}-{version}-{os_label}"
-    output_dir = os.path.join(build_dir, folder_name)
+    # 4. Find {app_name}-{version}-{os} output folder (os case-insensitive)
+    target_prefix = f"{app_name}-{version}-"
+    output_dir = None
+    folder_name = None
+    for entry in os.listdir(build_dir):
+        full_path = os.path.join(build_dir, entry)
+        if not os.path.isdir(full_path):
+            continue
+        if entry.lower() == f"{app_name}-{version}-{os_label}".lower():
+            folder_name = entry
+            output_dir = full_path
+            break
 
-    if not os.path.isdir(output_dir):
-        # Fallback: match by prefix (app_name-version-)
+    if not output_dir:
+        # Fallback: match by prefix {app_name}-{version}-
         for entry in os.listdir(build_dir):
             full_path = os.path.join(build_dir, entry)
-            if os.path.isdir(full_path) and entry.startswith(f"{app_name}-{version}-"):
+            if os.path.isdir(full_path) and entry.startswith(target_prefix):
                 folder_name = entry
                 output_dir = full_path
                 break
 
-    if not os.path.isdir(output_dir):
-        print(f"[publisher] output folder not found for app_name={app_name}, version={version}, os={os_label}")
+    if not output_dir:
+        print(f"[publisher] output folder not found for {app_name}-{version}-{os_label}")
         return False
 
     print(f"[publisher] output folder: {output_dir}")
 
-    # 4. Read COMMUNITY_KEY from build.json inside the output folder
+    # 5. Read COMMUNITY_KEY and SPONSOR_KEY from build.json
     build_json_path = os.path.join(output_dir, "build.json")
     if not os.path.exists(build_json_path):
         print("[publisher] build.json not found in output folder")
@@ -92,105 +141,103 @@ def publish(os_label, code, folder=""):
         return False
 
     community_key = build_info.get("COMMUNITY_KEY")
+    sponsor_key = build_info.get("SPONSOR_KEY")
     if not community_key:
         print("[publisher] COMMUNITY_KEY not found in build.json")
         return False
 
-    # 5. GET {baseurl}/auth/{community_key} to check server version
+    # 6. POST {baseurl}/auth/{community_key}/ to check if upload is needed
     base = baseurl().rstrip("/")
     check_url = f"{base}/auth/{community_key}/"
-    print(f"[publisher] checking server version: GET {check_url}")
+    print(f"[publisher] checking upload permission: POST {check_url}")
+
+    payload = {
+        "app_name": app_name,
+        "version": version,
+        "os": manifest_os,
+        "arch": arch,
+    }
 
     try:
-        resp = requests.get(check_url, timeout=30)
-        if resp.status_code == 404:
-            print("[publisher] server returned 404, treating as no existing version, will upload")
-        elif resp.status_code != 200:
+        resp = requests.post(check_url, json=payload, timeout=30)
+        if resp.status_code != 200:
             print(f"[publisher] server check failed, HTTP {resp.status_code}: {resp.text[:500]}")
             return False
 
-        if resp.status_code == 200:
-            try:
-                server_info = resp.json()
-            except (ValueError, json.JSONDecodeError):
-                print(f"[publisher] server returned non-JSON response: {resp.text[:500]}")
-                return False
-            server_app = server_info.get("app_name")
-            server_version = server_info.get("version")
-            print(f"[publisher] server: app_name={server_app}, version={server_version}")
+        try:
+            server_info = resp.json()
+        except (ValueError, json.JSONDecodeError):
+            print(f"[publisher] server returned non-JSON response: {resp.text[:500]}")
+            return False
 
-            # 6. If server already has the same version, skip upload
-            if server_app == app_name and server_version == version:
-                print("[publisher] server already has this version, skipping upload")
-                return True
+        can_upload = server_info.get("msg")
+        print(f"[publisher] server msg={can_upload}")
+
+        if can_upload is False:
+            print("[publisher] server rejected upload, skipping")
+            return True
+        if can_upload is not True:
+            print(f"[publisher] unexpected server response: {server_info}")
+            return False
     except requests.RequestException as e:
         print(f"[publisher] server check error: {e}")
         return False
 
-    # 7. Upload all files (excluding media/) in batches
-    update_url = f"{base}/auth/{community_key}/"
-    print(f"[publisher] update URL: {update_url}")
+    # 7. Create publish/ folder and stage files
+    publish_dir = os.path.join(os.getcwd(), "publish")
+    if os.path.exists(publish_dir):
+        shutil.rmtree(publish_dir)
+    os.makedirs(publish_dir, exist_ok=True)
 
-    file_entries = []
+    # Move manifest into publish/
+    staged_manifest = os.path.join(publish_dir, manifest_name)
+    shutil.move(manifest_path, staged_manifest)
 
-    # Add the manifest file (from build/ root)
-    file_entries.append(("manifest", manifest_name, manifest_path))
+    # Create a same-named folder inside publish/ and move all files into it
+    staged_folder = os.path.join(publish_dir, folder_name)
+    os.makedirs(staged_folder, exist_ok=True)
+    for item in os.listdir(output_dir):
+        src = os.path.join(output_dir, item)
+        dst = os.path.join(staged_folder, item)
+        shutil.move(src, dst)
 
-    # Walk the output folder, skip media/ (handled on server side)
-    skip_dirs = {"media"}
-    for root, dirs, filenames in os.walk(output_dir):
-        dirs[:] = [d for d in dirs if d not in skip_dirs]
-        for fn in filenames:
-            full_path = os.path.join(root, fn)
-            rel_path = os.path.relpath(full_path, output_dir).replace(os.sep, "/")
-            file_entries.append((rel_path, rel_path, full_path))
+    # 8. Zip the folder and manifest into {folder_name}.zip
+    zip_path = os.path.join(publish_dir, f"{folder_name}.zip")
+    print(f"[publisher] packaging {zip_path}")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add the manifest file at the root of the zip
+        zf.write(staged_manifest, arcname=manifest_name)
+        # Add the staged folder (with all its contents)
+        for root, dirs, files in os.walk(staged_folder):
+            for fn in files:
+                full_path = os.path.join(root, fn)
+                arcname = os.path.relpath(full_path, publish_dir)
+                zf.write(full_path, arcname=arcname)
 
-    total = len(file_entries)
-    print(f"[publisher] uploading {total} files...")
+    print(f"[publisher] zip created: {zip_path}")
 
-    BATCH_SIZE = 100
-    data = {"code": code} if code else None
-    success = True
+    # 9. POST the zip to {baseurl}/auth/{community_key}/upload/
+    upload_url = f"{base}/auth/{community_key}/upload/"
+    print(f"[publisher] uploading zip to {upload_url}")
 
-    for batch_start in range(0, total, BATCH_SIZE):
-        batch = file_entries[batch_start:batch_start + BATCH_SIZE]
-        batch_num = batch_start // BATCH_SIZE + 1
-        total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
+    try:
+        with open(zip_path, "rb") as f:
+            files = {"file": (f"{folder_name}.zip", f, "application/zip")}
+            data = {"code": code} if code else None
+            resp = requests.post(upload_url, files=files, data=data, timeout=600)
 
-        multipart = []
-        open_handles = []
-        try:
-            for field_name, filename, full_path in batch:
-                fh = open(full_path, "rb")
-                open_handles.append(fh)
-                multipart.append((field_name, (filename, fh, "application/octet-stream")))
+        if resp.status_code not in (200, 201):
+            print(f"[publisher] upload failed, HTTP {resp.status_code}: {resp.text[:500]}")
+            return False
 
-            resp = requests.post(update_url, files=multipart, data=data, timeout=600)
-
-            if resp.status_code not in (200, 201):
-                print(f"[publisher] batch {batch_num}/{total_batches} failed, HTTP {resp.status_code}: {resp.text[:500]}")
-                success = False
-                break
-
-            print(f"[publisher] batch {batch_num}/{total_batches} ok ({len(batch)} files)")
-        except requests.RequestException as e:
-            print(f"[publisher] batch {batch_num}/{total_batches} upload error: {e}")
-            success = False
-            break
-        except OSError as e:
-            print(f"[publisher] batch {batch_num}/{total_batches} file read error: {e}")
-            success = False
-            break
-        finally:
-            for fh in open_handles:
-                try:
-                    fh.close()
-                except Exception:
-                    pass
-
-    if success:
         print("[publisher] upload success")
-    return success
+        return True
+    except requests.RequestException as e:
+        print(f"[publisher] upload error: {e}")
+        return False
+    except OSError as e:
+        print(f"[publisher] failed to read zip: {e}")
+        return False
 
 
 if __name__ == "__main__":

@@ -224,6 +224,7 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
         f"--copyright=Copyright (c) 2020 {app_name}",
         icon_arg,
         "--enable-plugin=tk-inter",
+        "--enable-plugin=anti-bloat",
         "--module-parameter=django-settings-module=bomiot.server.server.settings",
         "--output-dir=build",
     ]
