@@ -67,7 +67,7 @@ def publish(os_label, code, folder=""):
     # 2. Locate manifest--{app_name}--{os}--*.json in build/
     manifest_path = None
     manifest_name = None
-    prefix = f"manifest--{app_name}--{os_label}--"
+    prefix = f"manifest--{app_name}-{os_label}-"
     for fn in os.listdir(build_dir):
         if fn.startswith(prefix) and fn.endswith(".json"):
             manifest_path = os.path.join(build_dir, fn)
