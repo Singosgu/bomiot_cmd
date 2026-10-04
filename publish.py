@@ -208,7 +208,7 @@ def publish(os_label, code, folder=""):
     # 8. Zip the folder and manifest into {folder_name}.zip
     zip_path = os.path.join(publish_dir, f"{folder_name}.zip")
     print(f"[publisher] packaging {zip_path}")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
         # Add the manifest file at the root of the zip
         zf.write(staged_manifest, arcname=manifest_name)
         # Add the staged folder (with all its contents)
@@ -219,6 +219,13 @@ def publish(os_label, code, folder=""):
                 zf.write(full_path, arcname=arcname)
 
     print(f"[publisher] zip created: {zip_path}")
+
+    # Clean up staged files, keep only the zip in publish/
+    try:
+        os.remove(staged_manifest)
+    except OSError:
+        pass
+    shutil.rmtree(staged_folder, ignore_errors=True)
 
     # 9. POST the zip to {baseurl}/auth/{community_key}/upload/
     upload_url = f"{base}/auth/{community_key}/upload/"
