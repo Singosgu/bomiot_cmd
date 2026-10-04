@@ -54,6 +54,7 @@ DEFAULT_INCLUDE_PACKAGES = [
     "bomiot_asgi",
     "bomiot_message",
     "bomiot_token",
+    "bomiot_pay",
     "django_filters",
     "rest_framework",
     "rest_framework_csv",
@@ -364,14 +365,57 @@ def load_gitignore(dist_dir):
     return patterns
 
 
-def is_ignored(rel_path, patterns):
-    """Check whether a file is ignored by .gitignore.
+# Directories excluded from the manifest (third-party libraries do not change
+# between builds, so their files are not tracked for incremental updates).
+IGNORED_MANIFEST_DIRS = {
+    "django",
+    "fastapi",
+    "flask",
+    "orjson",
+    "uvicorn",
+    "pandas",
+    "openpyxl",
+    "watchdog",
+    "tomlkit",
+    "psutil",
+    "xlsxwriter",
+    "requests",
+    "httptools",
+    "aiofiles",
+    "starlette",
+    "django_filters",
+    "rest_framework",
+    "rest_framework_csv",
+    "django_apscheduler",
+    "corsheaders",
+    "PIL",
+    "src",
+    "public",
+    "logs",
+}
 
-    ``node_modules`` is always excluded regardless of .gitignore rules.
-    Under ``templates/`` only files inside a ``dist/`` subdirectory are kept;
-    everything else in ``templates/`` is ignored.
+# File names excluded from the manifest (runtime data that changes on every run).
+IGNORED_MANIFEST_FILES = {
+    "db.sqlite3",
+}
+
+# Sub-directories under bomiot/cmd/ that are excluded from the manifest.
+IGNORED_BOMIOT_CMD_SUBDIRS = {"file", "extends", "newapi"}
+
+
+def is_ignored(rel_path, patterns, app_name=""):
+    """Check whether a file is ignored and should be excluded from the manifest.
+
+    Rules:
+        - ``node_modules`` is always excluded.
+        - Under ``templates/`` only files inside a ``dist/`` subdirectory are kept.
+        - Third-party library directories (see ``IGNORED_MANIFEST_DIRS``) and
+          ``bomiot/cmd/{file,extends,newapi}/`` are excluded because they do not
+          change between builds.
+        - ``.gitignore`` patterns are also applied.
     """
     parts = rel_path.split("/")
+    basename = os.path.basename(rel_path)
 
     # Always exclude node_modules from the build output / manifest.
     if "node_modules" in parts:
@@ -383,7 +427,18 @@ def is_ignored(rel_path, patterns):
         if "dist" not in parts[idx:]:
             return True
 
-    basename = os.path.basename(rel_path)
+    # Exclude third-party library directories (matched at any path depth).
+    if any(part in IGNORED_MANIFEST_DIRS for part in parts):
+        return True
+
+    # Exclude runtime data files (e.g. db.sqlite3).
+    if basename in IGNORED_MANIFEST_FILES:
+        return True
+
+    # Exclude bomiot/cmd/{file,extends,newapi}/ sub-directories.
+    if len(parts) >= 3 and parts[0] == "bomiot" and parts[1] == "cmd" and parts[2] in IGNORED_BOMIOT_CMD_SUBDIRS:
+        return True
+
     for pattern in patterns:
         if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(basename, pattern):
             return True
@@ -412,7 +467,7 @@ def generate_manifest(app_name, version, os_label, arch, folder_name):
             full = os.path.join(root, fn)
             rel = os.path.relpath(full, dist_dir).replace(os.sep, "/")
 
-            if is_ignored(rel, ignore_patterns):
+            if is_ignored(rel, ignore_patterns, app_name):
                 continue
 
             file_size = os.path.getsize(full)
