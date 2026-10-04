@@ -374,6 +374,9 @@ IGNORED_MANIFEST_DIRS = {
     "orjson",
     "uvicorn",
     "pandas",
+    "pandas.libs",
+    "numpy",
+    "numpy.libs",
     "openpyxl",
     "watchdog",
     "tomlkit",
@@ -392,6 +395,11 @@ IGNORED_MANIFEST_DIRS = {
     "src",
     "public",
     "logs",
+    "pytz",
+    "tzdata",
+    "tcl",
+    "tk",
+    "Cryptodome",
 }
 
 # File names excluded from the manifest (runtime data that changes on every run).
@@ -424,6 +432,10 @@ def is_ignored(rel_path, patterns, app_name=""):
     # Under templates/ only keep files that live in some dist/ subdirectory.
     if "templates" in parts:
         idx = parts.index("templates")
+        # bomiot package's templates/ are always excluded.
+        if "bomiot" in parts[:idx]:
+            return True
+        # Other templates/ only keep files inside a dist/ subdirectory.
         if "dist" not in parts[idx:]:
             return True
 
