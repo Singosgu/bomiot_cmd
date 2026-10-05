@@ -231,7 +231,7 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
     ]
 
     if os_label == "windows":
-        args.append("--windows-console-mode=disable")
+        args.append("--windows-console-mode=force")
     elif os_label == "macos":
         args.extend([
             f"--macos-app-name={app_name}",
@@ -348,8 +348,8 @@ def rename_dist_folder(app_name, folder_name):
 # 7. Generate manifest.json (for incremental updates)
 # ---------------------------------------------------------------------------
 
-BLOCK_SIZE = 1024 * 1024          # 1MB
-BLOCK_THRESHOLD = 8 * 1024 * 1024  # files >= 8MB use block-level hashing
+BLOCK_SIZE = int(0.25 * 1024 * 1024)   # 0.25MB per block
+BLOCK_THRESHOLD = 1 * 1024 * 1024  # files >= 1MB use block-level hashing
 
 
 def load_gitignore(dist_dir):
@@ -628,20 +628,21 @@ def build():
         # 8. Rename output directory
         rename_dist_folder(app_name, folder_name)
 
-        # 8. Generate manifest.json
-        generate_manifest(app_name, version, os_label, arch, folder_name)
-
-        # 9. Clean up temp files
-        temp_py = f"{app_name}.py"
-        if os.path.exists(temp_py):
-            os.remove(temp_py)
-
-        # 10. Write build.json (auth payload) into the output directory root.
+        # 9. Write build.json (auth payload) into the output directory root.
+        #    Must be written before generate_manifest so it is tracked.
         output_dir = os.path.join("build", folder_name)
         build_json_path = os.path.join(output_dir, "build.json")
         with open(build_json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
         print(f"[builder] build.json: {build_json_path}")
+
+        # 10. Generate manifest.json (includes build.json in the file list)
+        generate_manifest(app_name, version, os_label, arch, folder_name)
+
+        # 11. Clean up temp files
+        temp_py = f"{app_name}.py"
+        if os.path.exists(temp_py):
+            os.remove(temp_py)
 
         print(f"\n[builder] build complete!")
         print(f"[builder] output dir: build/{folder_name}")

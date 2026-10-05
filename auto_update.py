@@ -35,8 +35,8 @@ if UPDATE_URL:
 # Block-level incremental update parameters
 # Files larger than BLOCK_THRESHOLD are recorded in block format in the manifest,
 # so updates only download blocks whose hash differs (HTTP Range), avoiding re-downloading the whole file.
-BLOCK_SIZE = 0.25 * 1024 * 1024          # each block is 1 MiB
-BLOCK_THRESHOLD = 1 * 1024 * 1024  # enable block mode for files >= 8 MiB
+BLOCK_SIZE = 0.25 * 1024 * 1024          # each block is 0.25 MiB
+BLOCK_THRESHOLD = 1 * 1024 * 1024  # enable block mode for files >= 1 MiB
 
 
 def _detect_platform():
@@ -255,7 +255,7 @@ def _fetch_manifest(url, max_retries=3):
     for attempt in range(1, max_retries + 1):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "GreaterWMS-Updater"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 status = getattr(resp, "status", 200)
                 # 1. HTTP status check (urlopen raises HTTPError on 4xx/5xx; this is extra defense)
                 if status < 200 or status >= 300:
@@ -288,7 +288,7 @@ def _fetch_manifest(url, max_retries=3):
     raise last_err
 
 
-def _can_reach_server(update_url, timeout=2.0):
+def _can_reach_server(update_url, timeout=16.0):
     """
     Quick pre-check: use a raw socket to judge whether the host:port of UPDATE_URL is reachable.
     The goal is to skip the update check within 2 seconds when the network is down / NIC disabled /
@@ -451,10 +451,10 @@ def check_update(app_name, version, status_label=None, progress_bar=None):
     app_dir = _app_dir()
     # Build the update URL by appending COMMUNITY_KEY (from build.json) to BASE_URL.
     community_key = _load_community_key(app_dir)
-    if community_key:
-        update_url = f"{BASE_URL.rstrip('/')}/{community_key}/media/update/"
-    else:
-        update_url = UPDATE_URL
+    if not community_key:
+        print("[Update] COMMUNITY_KEY not found in build.json, update check skipped")
+        return False
+    update_url = f"{BASE_URL.rstrip('/')}/media/update/{community_key}/{app_name}/"
     if not update_url or not update_url.strip():
         print("[Update] UPDATE_URL is empty, update check skipped")
         return False
@@ -481,7 +481,7 @@ def check_update(app_name, version, status_label=None, progress_bar=None):
     if status_label:
         status_label.config(text="Checking for updates...")
         status_label.update()
-    if not _can_reach_server(update_url, timeout=2.0):
+    if not _can_reach_server(update_url, timeout=16.0):
         err_msg = "Update check failed: network unreachable, skipping"
         print(f"[Update] {err_msg} (server unreachable, pre-check 2s)")
         if status_label:
@@ -553,7 +553,7 @@ def check_update(app_name, version, status_label=None, progress_bar=None):
     remote_files = remote_manifest.get("files", {})
     # File download base: {UPDATE_URL}GreaterWMS-{version}-{Platform}/
     # Note: in rollback scenarios (remote version < binary version) the concatenated path is the old version directory; the server must keep the corresponding version folder
-    file_base_url = f"{update_url}{app_name}-{remote_version}-{_display}/"
+    file_base_url = f"{update_url}{app_name}--{remote_version}-{_os}/"
 
     # Pre-probe: verify remote version directory exists BEFORE the expensive hash diff.
     if remote_files:
