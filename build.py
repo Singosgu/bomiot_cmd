@@ -400,6 +400,7 @@ IGNORED_MANIFEST_DIRS = {
     "tcl",
     "tk",
     "Cryptodome",
+    "media",
 }
 
 # File names excluded from the manifest (runtime data that changes on every run).
