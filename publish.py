@@ -188,7 +188,10 @@ def publish(os_label, code, folder=""):
         shutil.copy2(manifest_path, staged_manifest)
 
         # Create a same-named folder inside publish/ (clear it from previous runs).
-        staged_folder = os.path.join(publish_dir, folder_name)
+        # Use the double-dash naming convention so the path on the server matches
+        # what auto_update.py requests: {app_name}--{version}-{os}/
+        upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
+        staged_folder = os.path.join(publish_dir, upload_folder_name)
         if os.path.exists(staged_folder):
             shutil.rmtree(staged_folder)
         os.makedirs(staged_folder, exist_ok=True)
@@ -262,8 +265,8 @@ def publish(os_label, code, folder=""):
 
         print(f"[publisher] copied {copied_count} changed/new files")
 
-        # 8. Zip the folder and manifest into {folder_name}.zip
-        zip_path = os.path.join(publish_dir, f"{folder_name}.zip")
+        # 8. Zip the folder and manifest into {upload_folder_name}.zip
+        zip_path = os.path.join(publish_dir, f"{upload_folder_name}.zip")
         print(f"[publisher] packaging {zip_path}")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
             # Add the manifest file at the root of the zip
@@ -290,7 +293,7 @@ def publish(os_label, code, folder=""):
 
         try:
             with open(zip_path, "rb") as f:
-                files = {"file": (f"{folder_name}.zip", f, "application/zip")}
+                files = {"file": (f"{upload_folder_name}.zip", f, "application/zip")}
                 data = {"code": code} if code else None
                 resp = requests.post(upload_url, files=files, data=data, timeout=600)
 

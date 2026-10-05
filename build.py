@@ -68,13 +68,7 @@ DEFAULT_INCLUDE_PACKAGES = [
 # Packages without data files (openpyxl, xlsxwriter, requests, aiofiles, etc.)
 # only use --include-package, avoiding FileNotFoundError on stray references.
 DEFAULT_INCLUDE_PACKAGE_DATA = [
-    "bomiot",
     "django",
-    "greaterwms",
-    "PIL",
-    "rest_framework",
-    "django_filters",
-    "corsheaders",
 ]
 
 DEFAULT_INCLUDE_MODULES = [
@@ -103,6 +97,14 @@ DEFAULT_INCLUDE_DATA_FILES = [
     "greaterwms/receiver.py=greaterwms/receiver.py",
     "greaterwms/files.py=greaterwms/files.py",
     "greaterwms/task.py=greaterwms/task.py"
+]
+
+# Directories whose contents must be available at runtime (templates,
+# media files, etc.). Source path is relative to the project root; the
+# destination path is relative to the .dist output folder.
+DEFAULT_INCLUDE_DATA_DIRS = [
+    "greaterwms/media=greaterwms/media",
+    "greaterwms/templates=greaterwms/templates",
 ]
 
 
@@ -270,6 +272,9 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
     for data in _merged(DEFAULT_INCLUDE_DATA_FILES, "include_data_files"):
         args.append(f"--include-data-file={data}")
 
+    for data_dir in _merged(DEFAULT_INCLUDE_DATA_DIRS, "include_data_dirs"):
+        args.append(f"--include-data-dir={data_dir}")
+
     return args
 
 
@@ -400,12 +405,20 @@ IGNORED_MANIFEST_DIRS = {
     "tcl",
     "tk",
     "Cryptodome",
-    "media",
 }
 
-# File names excluded from the manifest (runtime data that changes on every run).
+# Path prefixes excluded from the manifest (matched from the start of the
+# relative path). Use this for specific sub-trees that should not be tracked
+# for incremental updates, e.g. static image libraries under media/img/.
+IGNORED_MANIFEST_PATHS = {
+    "greaterwms/media/img",
+}
+
+# File names excluded from the manifest (runtime data that changes on every run,
+# or repository metadata that should not be tracked as build artifacts).
 IGNORED_MANIFEST_FILES = {
     "db.sqlite3",
+    ".gitignore",
 }
 
 # Sub-directories under bomiot/cmd/ that are excluded from the manifest.
@@ -443,6 +456,11 @@ def is_ignored(rel_path, patterns, app_name=""):
     # Exclude third-party library directories (matched at any path depth).
     if any(part in IGNORED_MANIFEST_DIRS for part in parts):
         return True
+
+    # Exclude specific path prefixes (e.g. greaterwms/media/img).
+    for prefix in IGNORED_MANIFEST_PATHS:
+        if rel_path.startswith(prefix + "/") or rel_path == prefix:
+            return True
 
     # Exclude runtime data files (e.g. db.sqlite3).
     if basename in IGNORED_MANIFEST_FILES:
