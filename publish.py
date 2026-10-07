@@ -5,32 +5,33 @@ import shutil
 import zipfile
 import importlib.util
 import requests
-from bomiot_cmd.baseurl import baseurl
 
 
-def _read_launcher_app_name():
-    """Read app_name from launcher.py in the current working directory.
+def _read_launcher_meta():
+    """Read app_name and base_url from launcher.py in the current working directory.
 
-    launcher.py defines ``app_name`` as a module-level variable, so we load
-    the file as a module and read the attribute directly instead of parsing
-    with regex.
+    launcher.py defines ``app_name`` and ``base_url`` as module-level variables,
+    so we load the file as a module and read the attributes directly instead of
+    parsing with regex.
     """
     launcher_path = os.path.join(os.getcwd(), "launcher.py")
     if not os.path.exists(launcher_path):
         print(f"[publisher] launcher.py not found: {launcher_path}")
-        return None
+        return None, None
     try:
         spec = importlib.util.spec_from_file_location("launcher", launcher_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
     except Exception as e:
         print(f"[publisher] failed to load launcher.py: {e}")
-        return None
+        return None, None
     app_name = getattr(module, "app_name", None)
+    base_url = getattr(module, "base_url", None)
     if not app_name:
         print("[publisher] app_name not found in launcher.py")
-        return None
-    return app_name
+    if not base_url:
+        print("[publisher] base_url not found in launcher.py")
+    return app_name, base_url
 
 
 def publish(os_label, code, folder=""):
@@ -38,14 +39,14 @@ def publish(os_label, code, folder=""):
 
     Flow:
         1. Read app_name from launcher.py (cwd)
-        2. Locate manifest--{app_name}--{os}--*.json in build/
+        2. Locate manifest--{app_name}-{os}-*.json in build/
         3. Parse manifest for app_name/version/os/arch
         4. Find {app_name}-{version}-{os} output folder (os case-insensitive)
         5. Read COMMUNITY_KEY/SPONSOR_KEY from build.json inside the folder
         6. POST {baseurl}/auth/{COMMUNITY_KEY}/ with manifest info; server
            returns {"msg": bool} -- True means upload is needed
-        7. If upload needed: create publish/, move manifest + output folder
-           into it, zip both into {folder_name}.zip
+        7. If upload needed: create publish/, copy manifest + entire output
+           folder into it, zip both into {folder_name}.zip
         8. POST the zip to {baseurl}/auth/{COMMUNITY_KEY}/upload/
 
     Args:
@@ -59,9 +60,11 @@ def publish(os_label, code, folder=""):
         print("[publisher] build/ directory not found, nothing to publish")
         return False
 
-    # 1. Read app_name from launcher.py
-    app_name = _read_launcher_app_name()
+    # 1. Read app_name and base_url from launcher.py
+    app_name, base_url = _read_launcher_meta()
     if not app_name:
+        return False
+    if not base_url:
         return False
 
     # 2. Locate manifest--{app_name}--{os}--*.json in build/
@@ -137,7 +140,7 @@ def publish(os_label, code, folder=""):
         return False
 
     # 6. POST {baseurl}/auth/{community_key}/ to check if upload is needed
-    base = baseurl().rstrip("/")
+    base = base_url.rstrip("/")
     check_url = f"{base}/auth/{community_key}/"
     print(f"[publisher] checking upload permission: POST {check_url}")
 
@@ -180,136 +183,60 @@ def publish(os_label, code, folder=""):
         shutil.rmtree(publish_dir, ignore_errors=True)
     os.makedirs(publish_dir, exist_ok=True)
 
-    # All steps below must clean up publish/ on exit (success or failure).
     result = False
+
+    # Copy manifest into publish/
+    staged_manifest = os.path.join(publish_dir, manifest_name)
+    shutil.copy2(manifest_path, staged_manifest)
+
+    # Create a same-named folder inside publish/ (clear it from previous runs).
+    # Use the double-dash naming convention so the path on the server matches
+    # what auto_update.py requests: {app_name}--{version}-{os}/
+    upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
+    staged_folder = os.path.join(publish_dir, upload_folder_name)
+    if os.path.exists(staged_folder):
+        shutil.rmtree(staged_folder)
+    os.makedirs(staged_folder, exist_ok=True)
+
+    # Copy the entire output folder into the staged folder.
+    shutil.copytree(output_dir, staged_folder, dirs_exist_ok=True)
+    print(f"[publisher] copied all files from {output_dir} to {staged_folder}")
+
+    # 8. Zip the folder and manifest into {upload_folder_name}.zip
+    zip_path = os.path.join(publish_dir, f"{upload_folder_name}.zip")
+    print(f"[publisher] packaging {zip_path}")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
+        # Add the manifest file at the root of the zip
+        zf.write(staged_manifest, arcname=manifest_name)
+        # Add the staged folder (with all its contents)
+        for root, dirs, files in os.walk(staged_folder):
+            for fn in files:
+                full_path = os.path.join(root, fn)
+                arcname = os.path.relpath(full_path, publish_dir)
+                zf.write(full_path, arcname=arcname)
+
+    print(f"[publisher] zip created: {zip_path}")
+
+    # 9. POST the zip to {baseurl}/auth/{community_key}/upload/
+    upload_url = f"{base}/auth/{community_key}/upload/"
+    print(f"[publisher] uploading zip to {upload_url}")
+
     try:
-        # Copy manifest into publish/
-        staged_manifest = os.path.join(publish_dir, manifest_name)
-        shutil.copy2(manifest_path, staged_manifest)
+        with open(zip_path, "rb") as f:
+            files = {"file": (f"{upload_folder_name}.zip", f, "application/zip")}
+            data = {"code": code} if code else None
+            resp = requests.post(upload_url, files=files, data=data, timeout=600)
 
-        # Create a same-named folder inside publish/ (clear it from previous runs).
-        # Use the double-dash naming convention so the path on the server matches
-        # what auto_update.py requests: {app_name}--{version}-{os}/
-        upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
-        staged_folder = os.path.join(publish_dir, upload_folder_name)
-        if os.path.exists(staged_folder):
-            shutil.rmtree(staged_folder)
-        os.makedirs(staged_folder, exist_ok=True)
+        if resp.status_code not in (200, 201):
+            print(f"[publisher] upload failed, HTTP {resp.status_code}: {resp.text[:500]}")
+        else:
+            print("[publisher] upload success")
+            result = True
+    except requests.RequestException as e:
+        print(f"[publisher] upload error: {e}")
+    except OSError as e:
+        print(f"[publisher] failed to read zip: {e}")
 
-        # Determine which files differ from a reference manifest.
-        local_files = manifest.get("files", {})
-        reference_files = {}
-
-        def _entry_hash(entry):
-            """Return the sha256 of a manifest entry (str for small files, dict for big)."""
-            if isinstance(entry, dict):
-                return entry.get("sha256")
-            return entry
-
-        # Try the server manifest first:
-        #   {baseurl}/media/update/{COMMUNITY_KEY}/{app_name}/{manifest_name}
-        server_manifest_url = f"{base}/media/update/{community_key}/{app_name}/{manifest_name}"
-        print(f"[publisher] fetching server manifest: {server_manifest_url}")
-        try:
-            resp = requests.get(server_manifest_url, timeout=30)
-            if resp.status_code == 200:
-                try:
-                    reference_files = resp.json().get("files", {})
-                    print("[publisher] using server manifest as reference")
-                except (ValueError, json.JSONDecodeError):
-                    print("[publisher] server returned non-JSON manifest, ignoring")
-            else:
-                print(f"[publisher] server manifest not found (HTTP {resp.status_code})")
-        except requests.RequestException as e:
-            print(f"[publisher] failed to fetch server manifest: {e}")
-
-        # Fall back to bomiot's built-in manifest if the server has none.
-        if not reference_files:
-            import bomiot
-            bomiot_dir = os.path.dirname(bomiot.__file__)
-            py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
-            os_lower = manifest_os.lower()
-            bomiot_manifest_dir = os.path.join(
-                bomiot_dir, "cmd", "file", "manifest", os_lower, py_ver
-            )
-            bomiot_manifest_path = None
-            if os.path.isdir(bomiot_manifest_dir):
-                for fn in os.listdir(bomiot_manifest_dir):
-                    if fn.endswith(".json"):
-                        bomiot_manifest_path = os.path.join(bomiot_manifest_dir, fn)
-                        break
-            if bomiot_manifest_path:
-                try:
-                    with open(bomiot_manifest_path, "r", encoding="utf-8") as f:
-                        reference_files = json.load(f).get("files", {})
-                    print(f"[publisher] using bomiot built-in manifest: {bomiot_manifest_path}")
-                except (OSError, json.JSONDecodeError) as e:
-                    print(f"[publisher] failed to parse bomiot manifest: {e}")
-            else:
-                print(f"[publisher] bomiot built-in manifest not found at {bomiot_manifest_dir}")
-
-        # Copy only files that are new or differ from the reference manifest.
-        copied_count = 0
-        for rel_path, local_entry in local_files.items():
-            local_hash = _entry_hash(local_entry)
-            ref_entry = reference_files.get(rel_path)
-            ref_hash = _entry_hash(ref_entry) if ref_entry is not None else None
-            if ref_hash is None or local_hash != ref_hash:
-                src = os.path.join(output_dir, rel_path)
-                dst = os.path.join(staged_folder, rel_path)
-                if not os.path.exists(src):
-                    continue
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(src, dst)
-                copied_count += 1
-
-        print(f"[publisher] copied {copied_count} changed/new files")
-
-        # 8. Zip the folder and manifest into {upload_folder_name}.zip
-        zip_path = os.path.join(publish_dir, f"{upload_folder_name}.zip")
-        print(f"[publisher] packaging {zip_path}")
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
-            # Add the manifest file at the root of the zip
-            zf.write(staged_manifest, arcname=manifest_name)
-            # Add the staged folder (with all its contents)
-            for root, dirs, files in os.walk(staged_folder):
-                for fn in files:
-                    full_path = os.path.join(root, fn)
-                    arcname = os.path.relpath(full_path, publish_dir)
-                    zf.write(full_path, arcname=arcname)
-
-        print(f"[publisher] zip created: {zip_path}")
-
-        # Clean up staged files, keep only the zip in publish/
-        try:
-            os.remove(staged_manifest)
-        except OSError:
-            pass
-        shutil.rmtree(staged_folder, ignore_errors=True)
-
-        # 9. POST the zip to {baseurl}/auth/{community_key}/upload/
-        upload_url = f"{base}/auth/{community_key}/upload/"
-        print(f"[publisher] uploading zip to {upload_url}")
-
-        try:
-            with open(zip_path, "rb") as f:
-                files = {"file": (f"{upload_folder_name}.zip", f, "application/zip")}
-                data = {"code": code} if code else None
-                resp = requests.post(upload_url, files=files, data=data, timeout=600)
-
-            if resp.status_code not in (200, 201):
-                print(f"[publisher] upload failed, HTTP {resp.status_code}: {resp.text[:500]}")
-            else:
-                print("[publisher] upload success")
-                result = True
-        except requests.RequestException as e:
-            print(f"[publisher] upload error: {e}")
-        except OSError as e:
-            print(f"[publisher] failed to read zip: {e}")
-    finally:
-        # Always remove the entire publish/ folder, whether the flow
-        # succeeded, failed, or raised an exception.
-        shutil.rmtree(publish_dir, ignore_errors=True)
     return result
 
 

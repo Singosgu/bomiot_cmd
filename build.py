@@ -19,7 +19,6 @@ import json
 import time
 import shutil
 import hashlib
-import fnmatch
 import platform
 import subprocess
 import tomlkit
@@ -131,9 +130,10 @@ def load_config():
 # ---------------------------------------------------------------------------
 
 def read_launcher_meta():
-    """Read app_name and version from launcher.py."""
+    """Read app_name, version and base_url from launcher.py."""
     app_name = None
     version = None
+    base_url = None
     launcher_path = os.path.join(os.getcwd(), "launcher.py")
     if not os.path.exists(launcher_path):
         raise RuntimeError(f"launcher.py not found: {launcher_path}")
@@ -145,11 +145,16 @@ def read_launcher_meta():
             m = re.match(r'^version\s*=\s*"([^"]+)"', line)
             if m:
                 version = m.group(1)
+            m = re.match(r'^base_url\s*=\s*"([^"]+)"', line)
+            if m:
+                base_url = m.group(1)
     if not app_name:
         raise RuntimeError("Cannot read app_name from launcher.py")
     if not version:
         raise RuntimeError("Cannot read version from launcher.py")
-    return app_name, version
+    if not base_url:
+        raise RuntimeError("Cannot read base_url from launcher.py")
+    return app_name, version, base_url
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +171,28 @@ def generate_apps_json():
     main(workspace)
     sys.argv = _orig_argv
     print(f"[builder] apps.json generated")
+
+
+def generate_baseurl_py(base_url):
+    """Write baseurl.py in the project root.
+
+    This file is a temporary build-time artifact: it is compiled into the
+    exe by Nuitka (encrypted), then deleted from the project root in the
+    finally block so the plain-text value does not leak.
+
+    auto_update.py imports it as ``from baseurl import baseurl`` at runtime,
+    resolving to the compiled version inside the exe.
+    """
+    baseurl_path = os.path.join(os.getcwd(), "baseurl.py")
+    with open(baseurl_path, "w", encoding="utf-8") as f:
+        f.write(
+            f'base_url = "{base_url}"\n'
+            f'\n'
+            f'def baseurl():\n'
+            f'    return base_url\n'
+        )
+    print(f"[builder] baseurl.py generated (temp, deleted after compile)")
+    return baseurl_path
 
 
 # ---------------------------------------------------------------------------
@@ -357,138 +384,18 @@ BLOCK_SIZE = int(0.25 * 1024 * 1024)   # 0.25MB per block
 BLOCK_THRESHOLD = 1 * 1024 * 1024  # files >= 1MB use block-level hashing
 
 
-def load_gitignore(dist_dir):
-    """Load .gitignore rules."""
-    patterns = []
-    for path in [os.path.join(dist_dir, ".gitignore"), ".gitignore"]:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        patterns.append(line)
-    return patterns
-
-
-# Directories excluded from the manifest (third-party libraries do not change
-# between builds, so their files are not tracked for incremental updates).
-IGNORED_MANIFEST_DIRS = {
-    "django",
-    "fastapi",
-    "flask",
-    "orjson",
-    "uvicorn",
-    "pandas",
-    "pandas.libs",
-    "numpy",
-    "numpy.libs",
-    "openpyxl",
-    "watchdog",
-    "tomlkit",
-    "psutil",
-    "xlsxwriter",
-    "requests",
-    "httptools",
-    "aiofiles",
-    "starlette",
-    "django_filters",
-    "rest_framework",
-    "rest_framework_csv",
-    "django_apscheduler",
-    "corsheaders",
-    "PIL",
-    "src",
-    "public",
-    "logs",
-    "pytz",
-    "tzdata",
-    "tcl",
-    "tk",
-    "Cryptodome",
-}
-
-# Path prefixes excluded from the manifest (matched from the start of the
-# relative path). Use this for specific sub-trees that should not be tracked
-# for incremental updates, e.g. static image libraries under media/img/.
-IGNORED_MANIFEST_PATHS = {
-    "greaterwms/media/img",
-}
-
-# File names excluded from the manifest (runtime data that changes on every run,
-# or repository metadata that should not be tracked as build artifacts).
-IGNORED_MANIFEST_FILES = {
-    "db.sqlite3",
-    ".gitignore",
-}
-
-# Sub-directories under bomiot/cmd/ that are excluded from the manifest.
-IGNORED_BOMIOT_CMD_SUBDIRS = {"file", "extends", "newapi"}
-
-
-def is_ignored(rel_path, patterns, app_name=""):
-    """Check whether a file is ignored and should be excluded from the manifest.
-
-    Rules:
-        - ``node_modules`` is always excluded.
-        - Under ``templates/`` only files inside a ``dist/`` subdirectory are kept.
-        - Third-party library directories (see ``IGNORED_MANIFEST_DIRS``) and
-          ``bomiot/cmd/{file,extends,newapi}/`` are excluded because they do not
-          change between builds.
-        - ``.gitignore`` patterns are also applied.
-    """
-    parts = rel_path.split("/")
-    basename = os.path.basename(rel_path)
-
-    # Always exclude node_modules from the build output / manifest.
-    if "node_modules" in parts:
-        return True
-
-    # Under templates/ only keep files that live in some dist/ subdirectory.
-    if "templates" in parts:
-        idx = parts.index("templates")
-        # bomiot package's templates/ are always excluded.
-        if "bomiot" in parts[:idx]:
-            return True
-        # Other templates/ only keep files inside a dist/ subdirectory.
-        if "dist" not in parts[idx:]:
-            return True
-
-    # Exclude third-party library directories (matched at any path depth).
-    if any(part in IGNORED_MANIFEST_DIRS for part in parts):
-        return True
-
-    # Exclude specific path prefixes (e.g. greaterwms/media/img).
-    for prefix in IGNORED_MANIFEST_PATHS:
-        if rel_path.startswith(prefix + "/") or rel_path == prefix:
-            return True
-
-    # Exclude runtime data files (e.g. db.sqlite3).
-    if basename in IGNORED_MANIFEST_FILES:
-        return True
-
-    # Exclude bomiot/cmd/{file,extends,newapi}/ sub-directories.
-    if len(parts) >= 3 and parts[0] == "bomiot" and parts[1] == "cmd" and parts[2] in IGNORED_BOMIOT_CMD_SUBDIRS:
-        return True
-
-    for pattern in patterns:
-        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(basename, pattern):
-            return True
-        if pattern.endswith("/"):
-            dir_name = pattern.rstrip("/")
-            if rel_path.startswith(dir_name + "/") or ("/" + dir_name + "/") in rel_path:
-                return True
-    return False
-
-
 def generate_manifest(app_name, version, os_label, arch, folder_name):
-    """Scan build output and generate manifest.json."""
+    """Scan build output and generate manifest.json.
+
+    All files in the build output are tracked for incremental updates,
+    except the manifest file itself.
+    """
     dist_dir = os.path.join("build", folder_name)
     manifest_name = f"manifest--{app_name}-{os_label}-{arch}.json"
 
     if not os.path.isdir(dist_dir):
         raise RuntimeError(f"Build output directory does not exist: {dist_dir}")
 
-    ignore_patterns = load_gitignore(dist_dir)
     files = {}
 
     for root, _, filenames in os.walk(dist_dir):
@@ -497,9 +404,6 @@ def generate_manifest(app_name, version, os_label, arch, folder_name):
                 continue
             full = os.path.join(root, fn)
             rel = os.path.relpath(full, dist_dir).replace(os.sep, "/")
-
-            if is_ignored(rel, ignore_patterns, app_name):
-                continue
 
             file_size = os.path.getsize(full)
             if file_size >= BLOCK_THRESHOLD:
@@ -614,9 +518,16 @@ def build():
         env_version = os.environ.get("BASE_VERSION")
         if env_app and env_version:
             app_name, version = env_app, env_version
+            # In CI, base_url is provided via env too; otherwise read from launcher.py.
+            base_url = os.environ.get("BASE_URL")
+            if not base_url:
+                _, _, base_url = read_launcher_meta()
         else:
-            app_name, version = read_launcher_meta()
+            app_name, version, base_url = read_launcher_meta()
         print(f"[builder] app: {app_name}  version: {version}")
+
+        # 1b. Generate baseurl.py (temp file, compiled into exe, deleted after)
+        baseurl_path = generate_baseurl_py(base_url)
 
         # 2. Generate apps.json
         generate_apps_json()
@@ -667,4 +578,12 @@ def build():
         print(f"[builder] output dir: build/{folder_name}")
         print(f"[builder] manifest: build/manifest-{os_label}-{arch}.json")
     finally:
+        # Delete temporary baseurl.py so the plain-text value does not leak.
+        # The base_url is already compiled into the exe at this point.
+        try:
+            if 'baseurl_path' in locals() and os.path.exists(baseurl_path):
+                os.remove(baseurl_path)
+                print(f"[builder] deleted temporary {baseurl_path}")
+        except OSError:
+            pass
         _print_elapsed()

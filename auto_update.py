@@ -19,7 +19,7 @@ import socket
 import urllib.request
 import urllib.error
 from time import sleep
-from bomiot_cmd.baseurl import baseurl
+from baseurl import baseurl
 
 
 # === Incremental update config (change to your actual address) ===
