@@ -3,16 +3,16 @@ import json
 import sys
 import shutil
 import zipfile
-import importlib.util
 import requests
+import importlib.util
 
 
 def _read_launcher_meta():
-    """Read app_name and base_url from launcher.py in the current working directory.
+    """Load launcher.py and read app_name + base_url from it.
 
-    launcher.py defines ``app_name`` and ``base_url`` as module-level variables,
-    so we load the file as a module and read the attributes directly instead of
-    parsing with regex.
+    launcher.py is the project's entry point. Since the auto_update logic has
+    been merged into it, launcher.py no longer triggers the baseurl dependency
+    chain at import time, so it is safe to import directly.
     """
     launcher_path = os.path.join(os.getcwd(), "launcher.py")
     if not os.path.exists(launcher_path):
@@ -20,13 +20,13 @@ def _read_launcher_meta():
         return None, None
     try:
         spec = importlib.util.spec_from_file_location("launcher", launcher_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
     except Exception as e:
         print(f"[publisher] failed to load launcher.py: {e}")
         return None, None
-    app_name = getattr(module, "app_name", None)
-    base_url = getattr(module, "base_url", None)
+    app_name = getattr(mod, "app_name", None)
+    base_url = getattr(mod, "base_url", None)
     if not app_name:
         print("[publisher] app_name not found in launcher.py")
     if not base_url:

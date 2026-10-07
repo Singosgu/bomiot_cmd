@@ -82,9 +82,7 @@ DEFAULT_NOFOLLOW_IMPORT_TO = [
     "IPython",
     "pytest",
     "unittest",
-    "node_modules",
-    "src",
-    "public"
+    "node_modules"
 ]
 
 DEFAULT_INCLUDE_DATA_FILES = [
@@ -102,6 +100,7 @@ DEFAULT_INCLUDE_DATA_FILES = [
 # media files, etc.). Source path is relative to the project root; the
 # destination path is relative to the .dist output folder.
 DEFAULT_INCLUDE_DATA_DIRS = [
+    "greaterwms/language=greaterwms/language",
     "greaterwms/media=greaterwms/media",
     "greaterwms/templates=greaterwms/templates",
 ]
@@ -171,28 +170,6 @@ def generate_apps_json():
     main(workspace)
     sys.argv = _orig_argv
     print(f"[builder] apps.json generated")
-
-
-def generate_baseurl_py(base_url):
-    """Write baseurl.py in the project root.
-
-    This file is a temporary build-time artifact: it is compiled into the
-    exe by Nuitka (encrypted), then deleted from the project root in the
-    finally block so the plain-text value does not leak.
-
-    auto_update.py imports it as ``from baseurl import baseurl`` at runtime,
-    resolving to the compiled version inside the exe.
-    """
-    baseurl_path = os.path.join(os.getcwd(), "baseurl.py")
-    with open(baseurl_path, "w", encoding="utf-8") as f:
-        f.write(
-            f'base_url = "{base_url}"\n'
-            f'\n'
-            f'def baseurl():\n'
-            f'    return base_url\n'
-        )
-    print(f"[builder] baseurl.py generated (temp, deleted after compile)")
-    return baseurl_path
 
 
 # ---------------------------------------------------------------------------
@@ -526,9 +503,6 @@ def build():
             app_name, version, base_url = read_launcher_meta()
         print(f"[builder] app: {app_name}  version: {version}")
 
-        # 1b. Generate baseurl.py (temp file, compiled into exe, deleted after)
-        baseurl_path = generate_baseurl_py(base_url)
-
         # 2. Generate apps.json
         generate_apps_json()
 
@@ -578,12 +552,4 @@ def build():
         print(f"[builder] output dir: build/{folder_name}")
         print(f"[builder] manifest: build/manifest-{os_label}-{arch}.json")
     finally:
-        # Delete temporary baseurl.py so the plain-text value does not leak.
-        # The base_url is already compiled into the exe at this point.
-        try:
-            if 'baseurl_path' in locals() and os.path.exists(baseurl_path):
-                os.remove(baseurl_path)
-                print(f"[builder] deleted temporary {baseurl_path}")
-        except OSError:
-            pass
         _print_elapsed()
