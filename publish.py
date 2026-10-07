@@ -177,51 +177,47 @@ def publish(os_label, code, folder=""):
         print(f"[publisher] server check error: {e}")
         return False
 
-    # 7. Create publish/ folder (remove any leftover from previous runs first)
     publish_dir = os.path.join(os.getcwd(), "publish")
-    if os.path.exists(publish_dir):
-        shutil.rmtree(publish_dir, ignore_errors=True)
-    os.makedirs(publish_dir, exist_ok=True)
-
     result = False
 
-    # Copy manifest into publish/
-    staged_manifest = os.path.join(publish_dir, manifest_name)
-    shutil.copy2(manifest_path, staged_manifest)
-
-    # Create a same-named folder inside publish/ (clear it from previous runs).
-    # Use the double-dash naming convention so the path on the server matches
-    # what auto_update.py requests: {app_name}--{version}-{os}/
-    upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
-    staged_folder = os.path.join(publish_dir, upload_folder_name)
-    if os.path.exists(staged_folder):
-        shutil.rmtree(staged_folder)
-    os.makedirs(staged_folder, exist_ok=True)
-
-    # Copy the entire output folder into the staged folder.
-    shutil.copytree(output_dir, staged_folder, dirs_exist_ok=True)
-    print(f"[publisher] copied all files from {output_dir} to {staged_folder}")
-
-    # 8. Zip the folder and manifest into {upload_folder_name}.zip
-    zip_path = os.path.join(publish_dir, f"{upload_folder_name}.zip")
-    print(f"[publisher] packaging {zip_path}")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
-        # Add the manifest file at the root of the zip
-        zf.write(staged_manifest, arcname=manifest_name)
-        # Add the staged folder (with all its contents)
-        for root, dirs, files in os.walk(staged_folder):
-            for fn in files:
-                full_path = os.path.join(root, fn)
-                arcname = os.path.relpath(full_path, publish_dir)
-                zf.write(full_path, arcname=arcname)
-
-    print(f"[publisher] zip created: {zip_path}")
-
-    # 9. POST the zip to {baseurl}/auth/{community_key}/upload/
-    upload_url = f"{base}/auth/{community_key}/upload/"
-    print(f"[publisher] uploading zip to {upload_url}")
-
     try:
+        # 7. Create publish/ folder (remove any leftover from previous runs first)
+        if os.path.exists(publish_dir):
+            shutil.rmtree(publish_dir, ignore_errors=True)
+        os.makedirs(publish_dir, exist_ok=True)
+
+        # Copy manifest into publish/
+        staged_manifest = os.path.join(publish_dir, manifest_name)
+        shutil.copy2(manifest_path, staged_manifest)
+
+        # Create a same-named folder inside publish/.
+        # Use the double-dash naming convention so the path on the server matches
+        # what auto_update.py requests: {app_name}--{version}-{os}/
+        upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
+        staged_folder = os.path.join(publish_dir, upload_folder_name)
+        os.makedirs(staged_folder, exist_ok=True)
+
+        # Copy the entire output folder into the staged folder.
+        shutil.copytree(output_dir, staged_folder, dirs_exist_ok=True)
+        print(f"[publisher] copied all files from {output_dir} to {staged_folder}")
+
+        # 8. Zip the folder and manifest into {upload_folder_name}.zip
+        zip_path = os.path.join(publish_dir, f"{upload_folder_name}.zip")
+        print(f"[publisher] packaging {zip_path}")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
+            zf.write(staged_manifest, arcname=manifest_name)
+            for root, dirs, files in os.walk(staged_folder):
+                for fn in files:
+                    full_path = os.path.join(root, fn)
+                    arcname = os.path.relpath(full_path, publish_dir)
+                    zf.write(full_path, arcname=arcname)
+
+        print(f"[publisher] zip created: {zip_path}")
+
+        # 9. POST the zip to {baseurl}/auth/{community_key}/upload/
+        upload_url = f"{base}/auth/{community_key}/upload/"
+        print(f"[publisher] uploading zip to {upload_url}")
+
         with open(zip_path, "rb") as f:
             files = {"file": (f"{upload_folder_name}.zip", f, "application/zip")}
             data = {"code": code} if code else None
@@ -235,7 +231,12 @@ def publish(os_label, code, folder=""):
     except requests.RequestException as e:
         print(f"[publisher] upload error: {e}")
     except OSError as e:
-        print(f"[publisher] failed to read zip: {e}")
+        print(f"[publisher] file operation error: {e}")
+    finally:
+        # Always clean up the publish/ directory regardless of success/failure.
+        if os.path.exists(publish_dir):
+            shutil.rmtree(publish_dir, ignore_errors=True)
+            print(f"[publisher] cleaned up {publish_dir}")
 
     return result
 

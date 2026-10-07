@@ -100,9 +100,6 @@ DEFAULT_INCLUDE_DATA_FILES = [
 # media files, etc.). Source path is relative to the project root; the
 # destination path is relative to the .dist output folder.
 DEFAULT_INCLUDE_DATA_DIRS = [
-    "greaterwms/language=greaterwms/language",
-    "greaterwms/media=greaterwms/media",
-    "greaterwms/templates=greaterwms/templates",
 ]
 
 
