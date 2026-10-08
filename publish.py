@@ -1,7 +1,7 @@
 import os
 import json
 import sys
-import zipfile
+import tarfile
 import requests
 import importlib.util
 
@@ -43,9 +43,9 @@ def publish(os_label, code, folder=""):
         4. Find {app_name}-{version}-{os} output folder (os case-insensitive)
         5. POST {baseurl}/update/ with manifest info; server
            returns {"msg": bool} -- True means upload is needed
-        6. If upload needed: create publish/, copy manifest + entire output
-           folder into it, zip both into {folder_name}.zip
-        7. POST the zip to {baseurl}/update/upload/
+        6. If upload needed: package manifest + output folder into
+           {folder_name}.tar.xz (LZMA2) directly from build/
+        7. POST the tar.xz to {baseurl}/update/upload/
 
     Args:
         os_label: OS name (windows/macos/linux), used to locate the manifest
@@ -157,15 +157,15 @@ def publish(os_label, code, folder=""):
         return False
 
     upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
-    zip_filename = f"{upload_folder_name}.zip"
-    zip_path = os.path.join(build_dir, zip_filename)
+    tar_filename = f"{upload_folder_name}.tar.xz"
+    tar_path = os.path.join(build_dir, tar_filename)
     result = False
 
     try:
-        print(f"[publisher] packaging zip from {output_dir} directly")
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
-            # Add manifest at the zip root
-            zf.write(manifest_path, arcname=manifest_name)
+        print(f"[publisher] packaging tar.xz (LZMA2) from {output_dir} directly")
+        with tarfile.open(tar_path, "w:xz") as tf:
+            # Add manifest at the archive root
+            tf.add(manifest_path, arcname=manifest_name)
             # Add all files from the build output dir, preserving the
             # {upload_folder_name}/ prefix so the server-side layout matches
             # what auto_update expects.
@@ -174,17 +174,17 @@ def publish(os_label, code, folder=""):
                     full_path = os.path.join(root, fn)
                     rel = os.path.relpath(full_path, output_dir)
                     arcname = f"{upload_folder_name}/{rel}"
-                    zf.write(full_path, arcname=arcname)
+                    tf.add(full_path, arcname=arcname)
 
-        zip_size = os.path.getsize(zip_path)
-        print(f"[publisher] zip created: {zip_path} ({zip_size / 1048576:.1f} MB)")
+        tar_size = os.path.getsize(tar_path)
+        print(f"[publisher] tar.xz created: {tar_path} ({tar_size / 1048576:.1f} MB)")
 
-        # POST the zip to {baseurl}/update/upload/
+        # POST the tar.xz to {baseurl}/update/upload/
         upload_url = f"{base}/update/upload/"
-        print(f"[publisher] uploading zip to {upload_url}")
+        print(f"[publisher] uploading tar.xz to {upload_url}")
 
-        with open(zip_path, "rb") as f:
-            files = {"file": (zip_filename, f, "application/zip")}
+        with open(tar_path, "rb") as f:
+            files = {"file": (tar_filename, f, "application/x-xz")}
             data = {"code": code} if code else None
             resp = requests.post(upload_url, files=files, data=data, timeout=600)
 
@@ -198,9 +198,9 @@ def publish(os_label, code, folder=""):
     except OSError as e:
         print(f"[publisher] file operation error: {e}")
     finally:
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
-            print(f"[publisher] cleaned up {zip_path}")
+        if os.path.exists(tar_path):
+            os.remove(tar_path)
+            print(f"[publisher] cleaned up {tar_path}")
 
     return result
 
