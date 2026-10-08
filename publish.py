@@ -2,7 +2,6 @@ import os
 import json
 import sys
 import zipfile
-import tempfile
 import requests
 import importlib.util
 
@@ -158,17 +157,13 @@ def publish(os_label, code, folder=""):
         return False
 
     upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
+    zip_filename = f"{upload_folder_name}.zip"
+    zip_path = os.path.join(build_dir, zip_filename)
     result = False
 
-    # Create a temporary zip file directly from build output -- no need to
-    # copy 6000+ files into a publish/ staging folder first.
-    tmp_zip = None
     try:
-        fd, tmp_zip = tempfile.mkstemp(suffix=".zip", prefix="bomiot_publish_")
-        os.close(fd)
-
         print(f"[publisher] packaging zip from {output_dir} directly")
-        with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_LZMA) as zf:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
             # Add manifest at the zip root
             zf.write(manifest_path, arcname=manifest_name)
             # Add all files from the build output dir, preserving the
@@ -181,15 +176,15 @@ def publish(os_label, code, folder=""):
                     arcname = f"{upload_folder_name}/{rel}"
                     zf.write(full_path, arcname=arcname)
 
-        zip_size = os.path.getsize(tmp_zip)
-        print(f"[publisher] zip created: {tmp_zip} ({zip_size / 1048576:.1f} MB)")
+        zip_size = os.path.getsize(zip_path)
+        print(f"[publisher] zip created: {zip_path} ({zip_size / 1048576:.1f} MB)")
 
         # POST the zip to {baseurl}/update/upload/
         upload_url = f"{base}/update/upload/"
         print(f"[publisher] uploading zip to {upload_url}")
 
-        with open(tmp_zip, "rb") as f:
-            files = {"file": (f"{upload_folder_name}.zip", f, "application/zip")}
+        with open(zip_path, "rb") as f:
+            files = {"file": (zip_filename, f, "application/zip")}
             data = {"code": code} if code else None
             resp = requests.post(upload_url, files=files, data=data, timeout=600)
 
@@ -203,9 +198,9 @@ def publish(os_label, code, folder=""):
     except OSError as e:
         print(f"[publisher] file operation error: {e}")
     finally:
-        if tmp_zip and os.path.exists(tmp_zip):
-            os.remove(tmp_zip)
-            print(f"[publisher] cleaned up {tmp_zip}")
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+            print(f"[publisher] cleaned up {zip_path}")
 
     return result
 

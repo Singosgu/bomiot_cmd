@@ -79,7 +79,22 @@ DEFAULT_NOFOLLOW_IMPORT_TO = [
     "IPython",
     "pytest",
     "unittest",
-    "node_modules"
+    "bomiot.cmd.extends",
+    "bomiot.cmd.file",
+    "bomiot.cmd.newapi"
+]
+
+# Non-runtime data files to exclude from the build output.
+# --noinclude-data-files works on data files (not Python modules).
+DEFAULT_NOINCLUDE_DATA_FILES = [
+    # All static files under bomiot/* are dev-only (templates, server config,
+    # language files, logo, etc.). Exclude every data file recursively.
+    "bomiot/*",
+    "bomiot/**/*",
+    # Any src/, public/, node_modules/ directories at any level
+    "*/src/*",
+    "*/public/*",
+    "*/node_modules/*",
 ]
 
 DEFAULT_INCLUDE_DATA_FILES = [
@@ -333,6 +348,9 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
     for data_dir in _merged(DEFAULT_INCLUDE_DATA_DIRS, "include_data_dirs"):
         args.append(f"--include-data-dir={data_dir}")
 
+    for data in _merged(DEFAULT_NOINCLUDE_DATA_FILES, "noinclude_data_files"):
+        args.append(f"--noinclude-data-files={data}")
+
     return args
 
 
@@ -354,6 +372,11 @@ def run_compiler(args):
         print(line, end="")
     proc.wait()
     if proc.returncode != 0:
+        # Clean up the leftover {app_name}.dist directory from a failed build
+        dist_dir = os.path.join("build", f"{args[1].replace('.py', '')}.dist")
+        if os.path.isdir(dist_dir):
+            shutil.rmtree(dist_dir, ignore_errors=True)
+            print(f"[builder] cleaned up failed build output: {dist_dir}")
         raise RuntimeError(f"Bomiot compilation failed, exit code: {proc.returncode}")
 
 
