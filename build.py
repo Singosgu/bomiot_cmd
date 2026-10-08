@@ -22,12 +22,8 @@ import hashlib
 import platform
 import subprocess
 import tomlkit
-import requests
-from bomiot_token import encrypt_info
+from bomiot_token import encrypt_info, verify_info
 
-
-AUTH_URL = "https://www.bomiot.com/auth/"
-ONE_MONTH_SECONDS = 30 * 24 * 3600
 
 # ---------------------------------------------------------------------------
 # Default compiler arguments (hardcoded; builder.toml can append extras).
@@ -68,6 +64,7 @@ DEFAULT_INCLUDE_PACKAGES = [
 # only use --include-package, avoiding FileNotFoundError on stray references.
 DEFAULT_INCLUDE_PACKAGE_DATA = [
     "django",
+    "greaterwms",
 ]
 
 DEFAULT_INCLUDE_MODULES = [
@@ -151,6 +148,66 @@ def read_launcher_meta():
     if not base_url:
         raise RuntimeError("Cannot read base_url from launcher.py")
     return app_name, version, base_url
+
+
+def ensure_launcher_workers_one():
+    """Ensure launcher.py has workers=1 in uvicorn.run() and WORKERS=1 env var.
+
+    Reads launcher.py, checks two things and rewrites them if needed:
+    1. uvicorn.run(..., workers=N, ...) -> workers=1
+    2. os.environ.setdefault("WORKERS", "X") -> "1"  (or add it if missing)
+    """
+    launcher_path = os.path.join(os.getcwd(), "launcher.py")
+    if not os.path.exists(launcher_path):
+        return  # read_launcher_meta will raise the proper error
+    with open(launcher_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    modified = False
+
+    # 1. Force workers=1 inside uvicorn.run(...) calls
+    def _replace_workers(m):
+        nonlocal modified
+        old_val = m.group(1)
+        if old_val != "1":
+            modified = True
+            print(f"[builder] launcher.py: workers={old_val} -> 1")
+            return f"workers=1"
+        return m.group(0)
+
+    content = re.sub(r"workers\s*=\s*(\d+)", _replace_workers, content)
+
+    # 2. Force WORKERS env var to "1"
+    #    Match: os.environ.setdefault("WORKERS", "X") or os.environ["WORKERS"] = "X"
+    workers_pattern = re.compile(
+        r'(os\.environ\.setdefault\(\s*"WORKERS"\s*,\s*)"([^"]*)"\s*\)'
+    )
+    m = workers_pattern.search(content)
+    if m:
+        if m.group(2) != "1":
+            modified = True
+            print(f'[builder] launcher.py: WORKERS="{m.group(2)}" -> "1"')
+            content = workers_pattern.sub(r'\g<1>"1")', content)
+    else:
+        # WORKERS env var not found -- add it after IS_LAN line
+        is_lan_pattern = re.compile(
+            r'(os\.environ\.setdefault\(\s*"IS_LAN"\s*,\s*"true"\s*\))'
+        )
+        if is_lan_pattern.search(content):
+            content = is_lan_pattern.sub(
+                r'\1\n    os.environ.setdefault("WORKERS", "1")',
+                content,
+            )
+            modified = True
+            print('[builder] launcher.py: added WORKERS="1" env var')
+        else:
+            # Could not find a good anchor; warn but do not fail
+            print("[builder] WARNING: could not find IS_LAN anchor to add WORKERS env var")
+
+    if modified:
+        with open(launcher_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("[builder] launcher.py updated (workers=1, WORKERS=1)")
 
 
 # ---------------------------------------------------------------------------
@@ -472,7 +529,30 @@ def build():
                 print(msg)
                 raise RuntimeError(msg)
         else:
-            community_key, sponsor_key = encrypt_info()
+            # Local / dev: prefer keys from build.json in the project root
+            # (reuse keys from a previous build); fall back to generating
+            # new ones via encrypt_info() if the file is absent, incomplete,
+            # or the keys cannot be decrypted by verify_info().
+            build_json_path = os.path.join(os.getcwd(), "build.json")
+            community_key = sponsor_key = None
+            if os.path.exists(build_json_path):
+                try:
+                    with open(build_json_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    community_key = data.get("COMMUNITY_KEY")
+                    sponsor_key = data.get("SPONSOR_KEY")
+                    # Verify the keys are still valid by attempting to decrypt
+                    # them; verify_info() raises on malformed/expired input.
+                    if community_key:
+                        verify_info(community_key)
+                    if sponsor_key:
+                        verify_info(sponsor_key)
+                except Exception:
+                    # Any failure (missing keys, JSON error, decrypt error)
+                    # means we cannot reuse build.json; generate fresh keys.
+                    community_key = sponsor_key = None
+            if not community_key or not sponsor_key:
+                community_key, sponsor_key = encrypt_info()
 
         payload = {
             "COMMUNITY_KEY": community_key,
@@ -499,6 +579,9 @@ def build():
         else:
             app_name, version, base_url = read_launcher_meta()
         print(f"[builder] app: {app_name}  version: {version}")
+
+        # 1b. Ensure launcher.py has workers=1 and WORKERS=1
+        ensure_launcher_workers_one()
 
         # 2. Generate apps.json
         generate_apps_json()

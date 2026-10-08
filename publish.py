@@ -42,12 +42,11 @@ def publish(os_label, code, folder=""):
         2. Locate manifest--{app_name}-{os}-*.json in build/
         3. Parse manifest for app_name/version/os/arch
         4. Find {app_name}-{version}-{os} output folder (os case-insensitive)
-        5. Read COMMUNITY_KEY/SPONSOR_KEY from build.json inside the folder
-        6. POST {baseurl}/auth/{COMMUNITY_KEY}/ with manifest info; server
+        5. POST {baseurl}/update/ with manifest info; server
            returns {"msg": bool} -- True means upload is needed
-        7. If upload needed: create publish/, copy manifest + entire output
+        6. If upload needed: create publish/, copy manifest + entire output
            folder into it, zip both into {folder_name}.zip
-        8. POST the zip to {baseurl}/auth/{COMMUNITY_KEY}/upload/
+        7. POST the zip to {baseurl}/update/upload/
 
     Args:
         os_label: OS name (windows/macos/linux), used to locate the manifest
@@ -120,28 +119,9 @@ def publish(os_label, code, folder=""):
 
     print(f"[publisher] output folder: {output_dir}")
 
-    # 5. Read COMMUNITY_KEY and SPONSOR_KEY from build.json
-    build_json_path = os.path.join(output_dir, "build.json")
-    if not os.path.exists(build_json_path):
-        print("[publisher] build.json not found in output folder")
-        return False
-
-    try:
-        with open(build_json_path, "r", encoding="utf-8") as f:
-            build_info = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        print(f"[publisher] failed to parse build.json: {e}")
-        return False
-
-    community_key = build_info.get("COMMUNITY_KEY")
-    sponsor_key = build_info.get("SPONSOR_KEY")
-    if not community_key:
-        print("[publisher] COMMUNITY_KEY not found in build.json")
-        return False
-
-    # 6. POST {baseurl}/auth/{community_key}/ to check if upload is needed
+    # 5. POST {baseurl}/update/ to check if upload is needed
     base = base_url.rstrip("/")
-    check_url = f"{base}/auth/{community_key}/"
+    check_url = f"{base}/update/publish/"
     print(f"[publisher] checking upload permission: POST {check_url}")
 
     payload = {
@@ -214,8 +194,8 @@ def publish(os_label, code, folder=""):
 
         print(f"[publisher] zip created: {zip_path}")
 
-        # 9. POST the zip to {baseurl}/auth/{community_key}/upload/
-        upload_url = f"{base}/auth/{community_key}/upload/"
+        # 9. POST the zip to {baseurl}/update/upload/
+        upload_url = f"{base}/update/upload/"
         print(f"[publisher] uploading zip to {upload_url}")
 
         with open(zip_path, "rb") as f:
