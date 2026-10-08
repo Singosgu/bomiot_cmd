@@ -1,8 +1,8 @@
 import os
 import json
 import sys
-import shutil
 import zipfile
+import tempfile
 import requests
 import importlib.util
 
@@ -157,48 +157,38 @@ def publish(os_label, code, folder=""):
         print(f"[publisher] server check error: {e}")
         return False
 
-    publish_dir = os.path.join(os.getcwd(), "publish")
+    upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
     result = False
 
+    # Create a temporary zip file directly from build output -- no need to
+    # copy 6000+ files into a publish/ staging folder first.
+    tmp_zip = None
     try:
-        # 7. Create publish/ folder (remove any leftover from previous runs first)
-        if os.path.exists(publish_dir):
-            shutil.rmtree(publish_dir, ignore_errors=True)
-        os.makedirs(publish_dir, exist_ok=True)
+        fd, tmp_zip = tempfile.mkstemp(suffix=".zip", prefix="bomiot_publish_")
+        os.close(fd)
 
-        # Copy manifest into publish/
-        staged_manifest = os.path.join(publish_dir, manifest_name)
-        shutil.copy2(manifest_path, staged_manifest)
-
-        # Create a same-named folder inside publish/.
-        # Use the double-dash naming convention so the path on the server matches
-        # what auto_update.py requests: {app_name}--{version}-{os}/
-        upload_folder_name = f"{app_name}--{version}-{manifest_os.lower()}"
-        staged_folder = os.path.join(publish_dir, upload_folder_name)
-        os.makedirs(staged_folder, exist_ok=True)
-
-        # Copy the entire output folder into the staged folder.
-        shutil.copytree(output_dir, staged_folder, dirs_exist_ok=True)
-        print(f"[publisher] copied all files from {output_dir} to {staged_folder}")
-
-        # 8. Zip the folder and manifest into {upload_folder_name}.zip
-        zip_path = os.path.join(publish_dir, f"{upload_folder_name}.zip")
-        print(f"[publisher] packaging {zip_path}")
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_LZMA) as zf:
-            zf.write(staged_manifest, arcname=manifest_name)
-            for root, dirs, files in os.walk(staged_folder):
+        print(f"[publisher] packaging zip from {output_dir} directly")
+        with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_LZMA) as zf:
+            # Add manifest at the zip root
+            zf.write(manifest_path, arcname=manifest_name)
+            # Add all files from the build output dir, preserving the
+            # {upload_folder_name}/ prefix so the server-side layout matches
+            # what auto_update expects.
+            for root, _, files in os.walk(output_dir):
                 for fn in files:
                     full_path = os.path.join(root, fn)
-                    arcname = os.path.relpath(full_path, publish_dir)
+                    rel = os.path.relpath(full_path, output_dir)
+                    arcname = f"{upload_folder_name}/{rel}"
                     zf.write(full_path, arcname=arcname)
 
-        print(f"[publisher] zip created: {zip_path}")
+        zip_size = os.path.getsize(tmp_zip)
+        print(f"[publisher] zip created: {tmp_zip} ({zip_size / 1048576:.1f} MB)")
 
-        # 9. POST the zip to {baseurl}/update/upload/
+        # POST the zip to {baseurl}/update/upload/
         upload_url = f"{base}/update/upload/"
         print(f"[publisher] uploading zip to {upload_url}")
 
-        with open(zip_path, "rb") as f:
+        with open(tmp_zip, "rb") as f:
             files = {"file": (f"{upload_folder_name}.zip", f, "application/zip")}
             data = {"code": code} if code else None
             resp = requests.post(upload_url, files=files, data=data, timeout=600)
@@ -213,10 +203,9 @@ def publish(os_label, code, folder=""):
     except OSError as e:
         print(f"[publisher] file operation error: {e}")
     finally:
-        # Always clean up the publish/ directory regardless of success/failure.
-        if os.path.exists(publish_dir):
-            shutil.rmtree(publish_dir, ignore_errors=True)
-            print(f"[publisher] cleaned up {publish_dir}")
+        if tmp_zip and os.path.exists(tmp_zip):
+            os.remove(tmp_zip)
+            print(f"[publisher] cleaned up {tmp_zip}")
 
     return result
 
