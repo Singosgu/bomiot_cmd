@@ -86,15 +86,67 @@ DEFAULT_NOFOLLOW_IMPORT_TO = [
 
 # Non-runtime data files to exclude from the build output.
 # --noinclude-data-files works on data files (not Python modules).
+# Note: Nuitka uses fnmatch-style matching where "*" does NOT cross "/",
+# so each directory level needs its own pattern.
 DEFAULT_NOINCLUDE_DATA_FILES = [
-    # All static files under bomiot/* are dev-only (templates, server config,
-    # language files, logo, etc.). Exclude every data file recursively.
+    # All static files under bomiot/* are dev-only.
     "bomiot/*",
     "bomiot/**/*",
-    # Any src/, public/, node_modules/ directories at any level
+    # greaterwms/templates: keep only dist/spa/, drop everything else.
+    "greaterwms/templates/src/*",
+    "greaterwms/templates/src/**/*",
+    "greaterwms/templates/public/*",
+    "greaterwms/templates/public/**/*",
+    "greaterwms/templates/.quasar/*",
+    "greaterwms/templates/.quasar/**/*",
+    "greaterwms/templates/package.json",
+    "greaterwms/templates/package-lock.json",
+    "greaterwms/templates/yarn.lock",
+    "greaterwms/templates/.gitignore",
+    "greaterwms/templates/.npmrc",
+    "greaterwms/templates/.editorconfig",
+    "greaterwms/templates/.prettierrc.json",
+    "greaterwms/templates/babel.config.js",
+    "greaterwms/templates/quasar.config.js",
+    "greaterwms/templates/postcss.config.js",
+    "greaterwms/templates/jsconfig.json",
+    "greaterwms/templates/eslint.config.js",
+    "greaterwms/templates/README.md",
+    "greaterwms/templates/index.html",
+    # greaterwms2/templates: only config files exist here, none needed at runtime.
+    "greaterwms2/templates/src/*",
+    "greaterwms2/templates/src/**/*",
+    "greaterwms2/templates/public/*",
+    "greaterwms2/templates/public/**/*",
+    "greaterwms2/templates/.quasar/*",
+    "greaterwms2/templates/.quasar/**/*",
+    "greaterwms2/templates/package.json",
+    "greaterwms2/templates/package-lock.json",
+    "greaterwms2/templates/yarn.lock",
+    "greaterwms2/templates/.gitignore",
+    "greaterwms2/templates/.npmrc",
+    "greaterwms2/templates/.editorconfig",
+    "greaterwms2/templates/.prettierrc.json",
+    "greaterwms2/templates/babel.config.js",
+    "greaterwms2/templates/quasar.config.js",
+    "greaterwms2/templates/postcss.config.js",
+    "greaterwms2/templates/jsconfig.json",
+    "greaterwms2/templates/eslint.config.js",
+    "greaterwms2/templates/README.md",
+    "greaterwms2/templates/index.html",
+    # Generic src/, public/, node_modules/ at any depth (covers other packages).
+    "**/*/src/*",
+    "**/*/src/**/*",
     "*/src/*",
+    "*/src/**/*",
+    "**/*/public/*",
+    "**/*/public/**/*",
     "*/public/*",
+    "*/public/**/*",
+    "**/*/node_modules/*",
+    "**/*/node_modules/**/*",
     "*/node_modules/*",
+    "*/node_modules/**/*",
 ]
 
 DEFAULT_INCLUDE_DATA_FILES = [
