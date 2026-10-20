@@ -323,6 +323,20 @@ def get_platform():
     return os_label, arch, display, icon_arg
 
 
+def read_debug_flag():
+    """Read [debug] debug from setup.ini; default True when missing."""
+    ini_path = os.path.join(os.getcwd(), "setup.ini")
+    try:
+        with open(ini_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        m = re.search(r"(?im)^\s*debug\s*=\s*(\w+)\s*$", content)
+        if m:
+            return m.group(1).strip().lower() == "true"
+    except OSError:
+        pass
+    return True
+
+
 # ---------------------------------------------------------------------------
 # 5. Compiler arguments
 # ---------------------------------------------------------------------------
@@ -334,7 +348,11 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
     appended on top (duplicates are skipped).
     """
 
-    jobs = max(1, (os.cpu_count() or 4) - 1)
+    # GitHub Actions runners: use a fixed 16 jobs; local: cpu_count - 1.
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        jobs = 16
+    else:
+        jobs = max(1, (os.cpu_count() or 4) - 1)
 
     args = [
         "Bomiot",  # argv[0] (display only; actual module is -m nuitka)
@@ -358,13 +376,17 @@ def build_compiler_args(app_name, version, os_label, icon_arg, config):
     ]
 
     if os_label == "windows":
-        args.append("--windows-console-mode=force")
+        args.append("--windows-console-mode=disable")
     elif os_label == "macos":
+        # Console follows setup.ini [debug]: True -> force, False -> disable.
+        # Unlike Windows this is baked into the .app at build time; editing
+        # setup.ini requires a rebuild to take effect.
+        console_mode = "force" if read_debug_flag() else "disable"
         args.extend([
             f"--macos-app-name={app_name}",
             f"--macos-app-version={version}",
             f"--macos-signed-app-name={app_name}",
-            "--macos-app-console-mode=disable",
+            f"--macos-app-console-mode={console_mode}",
         ])
 
     # Merge hardcoded defaults with extras from builder.toml (dedup).
