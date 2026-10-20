@@ -44,7 +44,8 @@ def _inject_env(yaml_content, env_vars):
     while i < len(lines):
         line = lines[i]
         # A top-level env block starts with "env:" at column 0.
-        if line.strip() == "env:":
+        # NOTE: indented "env:" (e.g. step-level env) must NOT match here.
+        if line[:1] and not line[0].isspace() and line.strip() == "env:":
             found_env = True
             out.append(line)
             i += 1
