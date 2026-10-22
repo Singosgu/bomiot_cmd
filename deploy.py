@@ -67,8 +67,9 @@ def _inject_env(yaml_content, env_vars):
                 i += 1
             # Append any missing keys at the end of the env block.
             last_indent = "  "
-            for key in target_keys - seen:
-                out.append(f'{last_indent}{key}: "{env_vars[key]}"')
+            for key in env_vars:
+                if key not in seen:
+                    out.append(f'{last_indent}{key}: "{env_vars[key]}"')
             continue
         out.append(line)
         i += 1
@@ -112,23 +113,32 @@ def deploy(folder: str):
     workflows_path = join(github_path, 'workflows')
     if not exists(workflows_path):
         makedirs(workflows_path)
-    # Copy greaterwms.yaml from bomiot package to .github/workflows
-    # and inject/update the workflow-global env block.
-    import bomiot
-    bomiot_dir = Path(bomiot.__file__).parent
-    source_yaml = bomiot_dir / 'cmd' / 'file' / 'greaterwms.yaml'
+    # Write .github/workflows/greaterwms.yaml.
+    # If the file already exists, only the 4 keys in its top-level env block are
+    # checked/overwritten; everything else stays untouched. If it does not exist,
+    # copy the template shipped with the bomiot package first.
     dest_yaml = join(workflows_path, 'greaterwms.yaml')
-    if exists(source_yaml):
+    if exists(dest_yaml):
+        with open(dest_yaml, 'r', encoding='utf-8') as f:
+            yaml_content = f.read()
+    else:
+        import bomiot
+        bomiot_dir = Path(bomiot.__file__).parent
+        source_yaml = bomiot_dir / 'cmd' / 'file' / 'greaterwms.yaml'
+        if not exists(source_yaml):
+            print(f'Template not found: {source_yaml}')
+            return False
         with open(str(source_yaml), 'r', encoding='utf-8') as f:
             yaml_content = f.read()
-        env_vars = {
-            "APP_NAME": app_name,
-            "BASE_VERSION": version,
-            "COMMUNITY_KEY": community_key,
-            "SPONSOR_KEY": sponsor_key,
-        }
-        yaml_content = _inject_env(yaml_content, env_vars)
-        with open(dest_yaml, 'w', encoding='utf-8') as f:
-            f.write(yaml_content)
+
+    env_vars = {
+        "APP_NAME": app_name,
+        "BASE_VERSION": version,
+        "COMMUNITY_KEY": community_key,
+        "SPONSOR_KEY": sponsor_key,
+    }
+    yaml_content = _inject_env(yaml_content, env_vars)
+    with open(dest_yaml, 'w', encoding='utf-8') as f:
+        f.write(yaml_content)
 
     print(f'Deploy project success')
