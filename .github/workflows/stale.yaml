@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-latest, windows-latest, ubuntu-22.04]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -68,13 +68,15 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: bomiot_cmd
         shell: bash
-        continue-on-error: true
         run: |
-          if auditwheel repair dist/*-linux_*.whl -w repaired/; then
-            rm -f dist/*-linux_*.whl
-            mv repaired/*.whl dist/
-          else
-            echo "auditwheel repair failed; keeping original platform wheel"
+          # PyPI rejects wheels tagged linux_x86_64; the repair must produce a
+          # manylinux_* tag, otherwise fail instead of shipping an uninstallable wheel.
+          auditwheel repair dist/*-linux_*.whl -w repaired/
+          rm -f dist/*-linux_*.whl
+          mv repaired/*.whl dist/
+          if ls dist/*-linux_*.whl >/dev/null 2>&1; then
+            echo "ERROR: wheel still has unsupported platform tag linux_*"
+            exit 1
           fi
 
       - name: List wheels
