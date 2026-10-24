@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-latest, windows-latest, ubuntu-22.04]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
 
   build_wheels_arm:
     name: Build (linux-${{ matrix.arch }}, py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -142,7 +142,7 @@ jobs:
 
   merge:
     name: Merge Artifacts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [build_wheels, build_wheels_arm]
     steps:
       - name: Download all wheel artifacts
@@ -163,7 +163,7 @@ jobs:
 
   release:
     name: Release to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [build_wheels, build_wheels_arm, merge]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
