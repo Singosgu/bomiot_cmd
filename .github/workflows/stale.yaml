@@ -112,7 +112,7 @@ jobs:
             --platform linux/${{ matrix.arch == 'armv7' && 'arm/v7' || 'arm64' }} \
             -v "${{ github.workspace }}":/workspace \
             -w /workspace \
-            python:${{ matrix.python-version }}-bookworm \
+            python:${{ matrix.python-version }}-bullseye \
             bash -c '
               set -e
               pip install --upgrade pip
