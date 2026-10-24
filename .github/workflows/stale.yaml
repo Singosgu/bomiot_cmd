@@ -31,14 +31,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install patchelf (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y patchelf
-
       - name: Install build dependencies
         run: |
           uv pip install --upgrade pip
-          uv pip install "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel auditwheel
+          # patchelf from PyPI: Ubuntu 22.04's apt version (0.14.3) is too old
+          # for auditwheel repair, so install the prebuilt 0.18+ binary instead.
+          uv pip install "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel auditwheel patchelf
+          patchelf --version
 
       - name: Compile bomiot_cmd package with Nuitka
         shell: bash
