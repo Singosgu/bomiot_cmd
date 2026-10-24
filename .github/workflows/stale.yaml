@@ -34,9 +34,14 @@ jobs:
       - name: Install build dependencies
         run: |
           uv pip install --upgrade pip
-          # patchelf from PyPI: Ubuntu 22.04's apt version (0.14.3) is too old
-          # for auditwheel repair, so install the prebuilt 0.18+ binary instead.
-          uv pip install "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel auditwheel patchelf
+          uv pip install "Nuitka==4.2.2" "tomlkit==0.13.3" "colorama>=0.4" setuptools wheel auditwheel
+
+      - name: Install patchelf (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          # Ubuntu 22.04's apt patchelf (0.14.3) is too old for auditwheel repair,
+          # so use the prebuilt PyPI binary (0.18+) instead.
+          uv pip install patchelf
           patchelf --version
 
       - name: Compile bomiot_cmd package with Nuitka
